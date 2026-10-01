@@ -5,7 +5,7 @@
 
 ## 在 App 里导入（iOS）
 
-`设置 → 源管理 → 导入书源 → 用默认订阅地址（一键导入）`，或手填下面任一条：
+`设置 → 源管理 → 导入书源 → 粘贴下面任一条订阅地址`，或直接把 JSON 粘进「粘贴 JSON」框：
 
 ```
 https://cdn.jsdelivr.net/gh/fanqie2025/mytingshu-sources@main/subscription/sources.json
