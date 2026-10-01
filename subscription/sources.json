@@ -403,5 +403,121 @@
       "retries": 3,
       "retryDelayMs": 1500
     }
+  },
+  {
+    "id": "mekui",
+    "name": "书音FM",
+    "host": "https://m.mekui.com",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "desc": "书音FM（m.mekui.com）。全站 Next.js 客户端渲染，唯一取数入口是 /ecmsapi/index.php（JSON）。搜索、分类、章节三步已跑通（实测搜索 12 条、章节 313 集）；⛔ 音频一步当前表达不了：站点要 act=wapseries&id=<书id>&mod=movie&movieId=<章节id>&t=<请求当刻epoch>&token=md5(原串+'&token='+密钥)，实测 t-1800s 可用、t-3600s 失效，而规则引擎没有『请求当刻时间』变量；同时章节地址只能由『书id+章节id』拼出，JSON 详情条目的 chapter id 无法把书 id 带进音频步骤。详见 tools/probe_mekui.py 与迁移报告。 音频走 wapseries 接口（t 为请求当刻时间戳 + md5 token，引擎已支持）。",
+    "searchable": true,
+    "discoverable": true,
+    "search": {
+      "kind": "json",
+      "url": "{host}/ecmsapi/index.php?mod=movie&act=search&keyword={kw}&page={page}&pagesize=20",
+      "items": "data.list",
+      "title": "title",
+      "urlRule": "id",
+      "cover": "titlepic",
+      "artist": "player",
+      "intro": "moviesay"
+    },
+    "categories": [
+      {
+        "title": "有声小说",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=28&pagesize=20",
+        "group": "有声小说"
+      },
+      {
+        "title": "广播剧",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=29&pagesize=20",
+        "group": "有声小说"
+      },
+      {
+        "title": "评书",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=30&pagesize=20",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "百家讲坛",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=31&pagesize=20",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "戏曲",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=81&pagesize=20",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "相声小品",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=91&pagesize=20",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "粤语",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=59&pagesize=20",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "养生",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=34&pagesize=20",
+        "group": "其它"
+      },
+      {
+        "title": "娱乐",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=35&pagesize=20",
+        "group": "其它"
+      },
+      {
+        "title": "车载专区",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=66&pagesize=20",
+        "group": "其它"
+      },
+      {
+        "title": "音乐",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=98&pagesize=20",
+        "group": "其它"
+      },
+      {
+        "title": "儿童",
+        "url": "{host}/ecmsapi/index.php?mod=movie&act=list&classid=100&pagesize=20",
+        "group": "其它"
+      }
+    ],
+    "detail": {
+      "kind": "json",
+      "url": "{host}/ecmsapi/index.php?mod=movie&act=movielist&id={id}&page=1&pagesize=1000",
+      "urlVars": {
+        "id": "/(\\d+)$"
+      },
+      "episodes": "data.moielist",
+      "episodeTitle": "title",
+      "episodeUrl": "id",
+      "ua": "mobile",
+      "episodeUrlTemplate": "{host}/play/{id}/{cid}",
+      "episodeUrlVars": {
+        "cid": "id"
+      }
+    },
+    "audio": {
+      "type": "post",
+      "ua": "mobile",
+      "url": "{host}/ecmsapi/index.php?act=wapseries&id={bid}&mod=movie&movieId={cid}&t={now}&token={token}",
+      "urlVars": {
+        "bid": "/play/(\\d+)/",
+        "cid": "/(\\d+)$"
+      },
+      "field": "data.SeriesUrl",
+      "fieldAlt": "data.signed_urls.0",
+      "referer": "{host}/",
+      "sign": {
+        "kind": "md5",
+        "input": "act=wapseries&id={bid}&mod=movie&movieId={cid}&t={now}&token=056a308c515e16b2fe5a5c631319339cbc60a8ee0e03d016",
+        "var": "token"
+      },
+      "statusField": "code",
+      "statusOK": "1"
+    }
   }
 ]

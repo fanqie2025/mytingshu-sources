@@ -351,5 +351,52 @@ def main():
               % (u, st, ct, len(raw), bid, body.count("/play/%s/" % bid)))
 
 
+    # ---------------- 14 完整链路证明：分类 → 第一本 → 章节 → 音频 → 206 ----------------
+    head("14 原生链路证明（规则引擎走不通时用这一段充当可播证据）")
+    st, obj = jget({"mod": "movie", "act": "list", "classid": cid_for_list,
+                    "page": "1", "pagesize": "20"})
+    d = (obj or {}).get("data") or {}
+    lst = d.get("list") or []
+    print("[a] 分类 classid=%s → 第 1 页 %s 本（total=%s）" % (cid_for_list, len(lst), d.get("total")))
+    if not lst:
+        print("!! 分类页没数据")
+        return
+    b2 = lst[0]
+    b2id = str(b2["id"])
+    print("    第一本：%s（bookId=%s，播音=%s）" % (b2.get("title"), b2id, b2.get("player")))
+
+    st, obj = jget({"mod": "movie", "act": "movielist", "id": b2id,
+                    "page": "1", "pagesize": "1000"})
+    eps = ((obj or {}).get("data") or {}).get("moielist") or []
+    print("[b] 章节 → %d 集   第一集：%s" % (len(eps), eps[0]["title"] if eps else "-"))
+    if not eps:
+        print("!! 没有章节")
+        return
+
+    e1 = eps[0]
+    ts = int(time.time())
+    rq = "act=wapseries&id=%s&mod=movie&movieId=%s&t=%d" % (b2id, e1["id"], ts)
+    tk = hashlib.md5((rq + "&token=" + TOKEN_KEY).encode()).hexdigest()
+    st, ct, raw, _ = get(API + "?" + rq + "&token=" + tk)
+    body = raw.decode("utf-8", "replace")
+    mm = re.search(r'"SeriesUrl":"((?:[^"\\]|\\.)*)"', body)
+    print("[c] 音频接口 code=%s  t=%d  md5=%s" % (re.search(r'"code":(\d+)', body).group(1), ts, tk))
+    if not mm:
+        print("!! 没拿到 SeriesUrl：%s" % body[:200])
+        return
+    url = mm.group(1).replace("\\/", "/")
+
+    # 引擎里最接近的等价写法（如果能算出 t）：
+    print("    ★ 规则里若能拿到 t，audio 段应是：")
+    print('      {"type":"post","url":"%s/ecmsapi/index.php?act=wapseries&id={bid}&mod=movie&movieId={cid}&t={t}&token={token}",' % HOST)
+    print('       "sign":{"kind":"md5","input":"act=wapseries&id={bid}&mod=movie&movieId={cid}&t={t}&token=%s","var":"token"}}' % TOKEN_KEY)
+    print("[d] 音频 ：%s" % url[:110])
+    st, ct, raw, final = get(url, rng="bytes=0-1024")
+    print("[e] 试听 ：HTTP %s %s %d 字节 → %s" % (st, ct, len(raw), final[:90]))
+    print("    （免签名等价入口：https://api.aikeu.com/api.php?kw=%s，同样 %s）"
+          % (re.search(r"kw=(\d+)", url).group(1) if re.search(r"kw=(\d+)", url) else "?",
+             "可直接播" if st in (200, 206) else "不可播"))
+
+
 if __name__ == "__main__":
     main()

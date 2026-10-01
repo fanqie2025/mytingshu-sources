@@ -224,6 +224,13 @@ def _selftest():
          "var u1234567890 = 'https://car-er.kuwo.cn/ee/ff/M5000x.mp3';\n"
          "setMedia({mp3:''+u1234567890+''});",
          "https://car-er.kuwo.cn/ee/ff/M5000x.mp3"),
+        ("E(单个字面量)",
+         "setMedia({mp3:'https://car-er.kuwo.cn/gg/hh/M5000y.mp3'});",
+         "https://car-er.kuwo.cn/gg/hh/M5000y.mp3"),
+        ("F(url变量是表达式+字面量后缀)",
+         "url111 = 'https://car-er.kuwo.cn/ii/jj/M5000z';\n"
+         "setMedia({mp3:''+url111+'.mp3'});",
+         "https://car-er.kuwo.cn/ii/jj/M5000z.mp3"),
     ]
     lines, all_ok = [], True
     for name, html, want in cases:
@@ -238,7 +245,28 @@ def _selftest():
     lines.append("       url(\\d+) 误匹配 murl：裸正则命中 '%s'，加边界后 %s"
                  % (bad, "不命中 [OK]" if good is None else "仍命中 [!!]"))
     all_ok = all_ok and good is None
-    return all_ok, lines
+
+    # ── 与引擎的求值器逐个 fixture 对照（不联网）──────────────────────────
+    # 目的：把「引擎求值器 vs 本脚本求值器」的分歧钉死在具体形态上。
+    # 单独一条结论：链路能跑通 ≠ 引擎的求值器正确。
+    engine_ok = True
+    engine_fn = getattr(R, "media_expr_url", None)
+    if engine_fn is not None:
+        lines.append("       ── 与引擎 rule_engine.media_expr_url 对照 ──")
+        for name, html, want in cases:
+            try:
+                eng = engine_fn(html) or ""
+            except Exception as e:
+                eng = "异常:%s" % e
+            same = eng == want
+            if not same:
+                engine_ok = False
+            lines.append("       %-28s %s  引擎=%s"
+                         % (name, "[同一结果]" if same else "[!! 分歧]",
+                            (eng[-34:] if len(eng) > 34 else eng) or repr(eng)))
+    else:
+        lines.append("       （引擎里没有 media_expr_url，跳过对照）")
+    return all_ok, engine_ok, lines
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -257,7 +285,7 @@ def rec(name, ok, detail=""):
     return ok
 
 
-def robust(fn, tries=4, delays=(2, 4, 6)):
+def robust(fn, tries=5, delays=(2, 4, 6, 8)):
     """Cloudflare 会偶发连接重置 / 502（文档坑 12），所以连接层自己退避重试。
 
     注意：引擎的 fetch 只在「守卫页」时重放，对连接异常不重试 —— 这里补上。
@@ -519,11 +547,13 @@ def main():
 
     # ────────────────────────────────────────────────────────────────
     head("⑦ PC 播放页  GET {p}/player.html?nid=&cid=&site=16  → 求值 `mp3:` 拼接表达式")
-    ok_self, lines = _selftest()
-    print("       求值器自测（文档实录的 3 种形态 + 整条地址在变量里，共 4 例）：")
+    ok_self, ok_engine, lines = _selftest()
+    print("       求值器自测（文档实录的 3 种形态 + 整条地址在变量里 + 今晚实测 2 种，共 6 例）：")
     for l in lines:
         print(l)
-    rec("求值器自测", ok_self)
+    rec("本脚本求值器自测", ok_self)
+    rec("引擎求值器与本脚本一致", ok_engine,
+        "" if ok_engine else "引擎在部分形态上给出的地址是错的（缺 .mp3）→ 见上面 [!! 分歧]")
 
     audio_url = ""
     if not eps:

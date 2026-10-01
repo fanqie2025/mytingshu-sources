@@ -14,6 +14,7 @@ import json
 import random
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -456,7 +457,7 @@ def parse_list(html, lr, rule):
     if kind == "literal":
         return parse_literal_list(html, lr, host)
     soup = BeautifulSoup(html, "lxml")
-    nodes = soup.select(lr["list"])
+    nodes = soup.select(fix_sel(lr["list"]))
     books = []
     for node in nodes:
         title = extract(lr["title"], [node])
@@ -507,7 +508,16 @@ def do_detail(rule, book):
         episodes = []
         for it in arr:
             t = clean_text(_any_at(d.get("episodeTitle") or "name", it) or "")
-            u = str(_any_at(d.get("episodeUrl") or "url", it) or "")
+            if d.get("episodeUrlTemplate"):
+                # 章节地址要拼出来（站点只给数字 id，书 id 在 detail.urlVars 里）
+                ev = dict(vars_)
+                for var, path in (d.get("episodeUrlVars") or {}).items():
+                    ev[var] = str(_any_at(path, it) or "")
+                u = fill_text(d["episodeUrlTemplate"], host, extra=ev)
+                if not u.startswith("http"):
+                    u = fill(d["episodeUrlTemplate"], host, extra=ev)
+            else:
+                u = str(_any_at(d.get("episodeUrl") or "url", it) or "")
             if u:
                 episodes.append({"title": t, "url": u})
         if d.get("cover"):
@@ -645,7 +655,7 @@ def do_audio(rule, ep):
                 return (m.group(1) if m else "").replace("\\/", "/"), {"Referer": referer}
             if a["type"] == "api":
                 # 通用版：从章节地址正则取变量 → 拼接口地址 → GET → 点号路径取值 → 退正则
-                variables = {}
+                variables = {"now": str(int(time.time()))}
                 for k, pat in (a.get("urlVars") or {}).items():
                     mm = re.search(pat, ep["url"])
                     variables[k] = mm.group(1) if mm else ""
@@ -678,7 +688,7 @@ def do_audio(rule, ep):
                         final = final.replace(pair[0], pair[1])
                 return final, {"Referer": referer}
             if a["type"] == "pcplayer":
-                variables = {}
+                variables = {"now": str(int(time.time()))}
                 for k, pat in (a.get("urlVars") or {}).items():
                     mm = re.search(pat, ep["url"])
                     variables[k] = mm.group(1) if mm else ""
@@ -686,10 +696,17 @@ def do_audio(rule, ep):
                 html = fetch(page_url, referer=referer, desktop=True)
                 return media_expr_url(html), {"Referer": referer}
             if a["type"] == "post":
-                page = fetch(ep["url"], referer=host + "/", desktop=desktop)
-                variables = {}
-                for key, meta_name in (a.get("metaFrom") or {}).items():
-                    variables[key] = meta(meta_name, page)
+                # {now}：请求当刻的 epoch 秒（签名与 URL 必须用同一个值）
+                variables = {"now": str(int(time.time()))}
+                # 先从章节地址正则取变量（书音FM 的 id/movieId 都从地址里来）
+                for k, pat in (a.get("urlVars") or {}).items():
+                    mm = re.search(pat, ep["url"])
+                    variables[k] = mm.group(1) if mm else ""
+                # 只有写了 metaFrom 才需要先拉章节页
+                if a.get("metaFrom"):
+                    page = fetch(ep["url"], referer=host + "/", desktop=desktop)
+                    for key, meta_name in (a.get("metaFrom") or {}).items():
+                        variables[key] = meta(meta_name, page)
                 for k, v in (a.get("metaDefaults") or {}).items():
                     if not variables.get(k):
                         variables[k] = v
@@ -760,6 +777,7 @@ def do_audio(rule, ep):
         except Exception as e:
             last = str(e)
     raise RuntimeError(last or "取音频失败")
+
 
 
 

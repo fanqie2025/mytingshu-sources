@@ -1,0 +1,161 @@
+[
+  {
+    "id": "ting22",
+    "name": "22听书",
+    "host": "https://22ting.com",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": true,
+    "desc": "一夜幻听网（22ting.com）。搜索要过一次图片验证码（算术题，已配 verification，App 会弹内置浏览器让用户过一次；站点把验证状态记在 PHPSESSID 会话里，过完本次会话内搜索就通），站点另限「搜索 6 秒一次」，超频返回「提示信息」页。分类（24 个，/html/221.html 起）、章节、播放都不需要验证码。章节页里 `var now=\"…m4a\"` 就是 xmcdn 音频直链，播放带 Referer。",
+    "search": {
+      "url": "{host}/search.php?page={page}&searchword={kw}&searchtype=",
+      "list": "ul.row-b > li",
+      "title": "h2 a.f-bold@text",
+      "urlRule": "h2 a.f-bold@href",
+      "cover": ".img-box img@src",
+      "author": "h2 span.fr@text",
+      "artist": "p.f-gray@regex(作者：\\s*(.*?)\\s*，由\\s*(.*?)\\s*播音,2)",
+      "intro": "p.f-gray@text"
+    },
+    "verification": {
+      "url": "{host}/search.php?searchword={kw}"
+    },
+    "categories": [
+      {
+        "title": "玄幻",
+        "url": "{host}/html/221.html",
+        "group": "小说"
+      },
+      {
+        "title": "言情",
+        "url": "{host}/html/222.html",
+        "group": "小说"
+      },
+      {
+        "title": "都市",
+        "url": "{host}/html/223.html",
+        "group": "小说"
+      },
+      {
+        "title": "恐怖",
+        "url": "{host}/html/224.html",
+        "group": "小说"
+      },
+      {
+        "title": "惊悚",
+        "url": "{host}/html/225.html",
+        "group": "小说"
+      },
+      {
+        "title": "推理",
+        "url": "{host}/html/226.html",
+        "group": "小说"
+      },
+      {
+        "title": "武侠",
+        "url": "{host}/html/227.html",
+        "group": "小说"
+      },
+      {
+        "title": "历史",
+        "url": "{host}/html/228.html",
+        "group": "小说"
+      },
+      {
+        "title": "军事",
+        "url": "{host}/html/229.html",
+        "group": "小说"
+      },
+      {
+        "title": "穿越",
+        "url": "{host}/html/2210.html",
+        "group": "小说"
+      },
+      {
+        "title": "科幻",
+        "url": "{host}/html/2211.html",
+        "group": "小说"
+      },
+      {
+        "title": "网游",
+        "url": "{host}/html/2212.html",
+        "group": "小说"
+      },
+      {
+        "title": "评书",
+        "url": "{host}/html/2213.html",
+        "group": "其它"
+      },
+      {
+        "title": "戏曲",
+        "url": "{host}/html/2214.html",
+        "group": "其它"
+      },
+      {
+        "title": "笑话",
+        "url": "{host}/html/2215.html",
+        "group": "其它"
+      },
+      {
+        "title": "儿童",
+        "url": "{host}/html/2216.html",
+        "group": "其它"
+      },
+      {
+        "title": "财经",
+        "url": "{host}/html/2217.html",
+        "group": "其它"
+      },
+      {
+        "title": "广播",
+        "url": "{host}/html/2218.html",
+        "group": "其它"
+      },
+      {
+        "title": "诗歌",
+        "url": "{host}/html/2219.html",
+        "group": "其它"
+      },
+      {
+        "title": "文学",
+        "url": "{host}/html/2220.html",
+        "group": "其它"
+      },
+      {
+        "title": "粤语",
+        "url": "{host}/html/2221.html",
+        "group": "其它"
+      },
+      {
+        "title": "经典",
+        "url": "{host}/html/2222.html",
+        "group": "其它"
+      },
+      {
+        "title": "相声小品",
+        "url": "{host}/html/2223.html",
+        "group": "其它"
+      },
+      {
+        "title": "百家讲坛",
+        "url": "{host}/html/2224.html",
+        "group": "其它"
+      }
+    ],
+    "detail": {
+      "episodes": "#yuedu ul.ul-36 li a",
+      "episodeTitle": "@title",
+      "episodeUrl": "@href",
+      "cover": "div.style-img.pd10 img@src",
+      "author": "div.style-img.pd10 section@regex(作者：\\s*(.*?)\\s*，由\\s*(.*?)\\s*播音,1)",
+      "artist": "div.style-img.pd10 section@regex(作者：\\s*(.*?)\\s*，由\\s*(.*?)\\s*播音,2)",
+      "intro": "div.style-img.pd10 section@regex(内容介绍：([\\s\\S]*))"
+    },
+    "audio": {
+      "type": "regex",
+      "pattern": "var\\s+now\\s*=\\s*\"([^\"]+)\"",
+      "referer": "{host}/"
+    }
+  }
+]

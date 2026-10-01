@@ -14,10 +14,13 @@
 本脚本只读线上站点，不改任何东西。
 """
 import http.cookiejar
+import json
 import os
 import re
 import sys
+import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -182,12 +185,11 @@ def probe_search():
         act = re.search(r'<form[^>]*action="([^"]*)"', html)
         print("        验证码图 : %s" % (im.group(1) if im else "(无)"))
         print("        表单 action: %s" % (act.group(1) if act else "(无)"))
-        # 验证码图长什么样（存盘，人工/后续 OCR 用）
+        # 验证码图长什么样（存到系统临时目录，方便人工看；不往仓库里塞文件）
         if im:
             iu = urllib.parse.urljoin(BASE + "search.php", im.group(1))
             st2, hd2, iraw = get(iu, referer=BASE + "search.php?searchword=" + q)
-            out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending", "ting22_captcha.jpg")
-            os.makedirs(os.path.dirname(out), exist_ok=True)
+            out = os.path.join(tempfile.gettempdir(), "ting22_captcha.jpg")
             with open(out, "wb") as f:
                 f.write(iraw)
             print("        验证码图 HTTP %s %s %d 字节 → 存到 %s"
@@ -266,6 +268,244 @@ def probe_forge():
 
 
 # --------------------------------------------------------------------------
+# ②c 验证码会话：分两趟跑，中间由人看一次图（脚本不 OCR）
+#     python probe_ting22.py captcha          → 取图存临时目录，打印路径
+#     python probe_ting22.py captcha 16       → 用答案过验证码，再验证「换会话还要不要验证」
+# --------------------------------------------------------------------------
+
+JAR_FILE = os.path.join(tempfile.gettempdir(), "ting22_probe_cookies.lwp")
+
+
+def probe_captcha(answer=None):
+    head("②c 验证码会话（answer=%s）" % (answer or "未给，只取图"))
+
+    kw = "三体"
+    q = urllib.parse.quote(kw)
+    jar = http.cookiejar.LWPCookieJar(JAR_FILE)
+    if os.path.exists(JAR_FILE):
+        try:
+            jar.load(ignore_discard=True, ignore_expires=True)
+        except Exception:
+            pass
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def go(url, data=None, referer=BASE):
+        req = urllib.request.Request(url, data=data)
+        req.add_header("User-Agent", UA_M)
+        req.add_header("Referer", referer)
+        if data is not None:
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        for i in range(3):
+            try:
+                with op.open(req, timeout=45) as r:
+                    return r.status, dict(r.headers), r.read()
+            except Exception as e:
+                if i == 2:
+                    raise
+                print("        … 重试 %d（%s）" % (i + 1, str(e)[:50]))
+                time.sleep(3)
+
+    search_url = BASE + "search.php?searchword=" + q
+    check_url = (BASE + "search.php?scheckAC=check&page=&searchtype=&order=&tid=&area="
+                 "&year=&letter=&yuyan=&state=&money=&ver=&jq=")
+
+    # 注意：每请求一次 vdimgck.php，服务端的验证码就换一次 —— 所以「看图」和「提交」
+    # 必须分两趟，且第二趟绝不能再碰图片，否则答案立刻失效。
+    if not answer:
+        st, hd, raw = go(search_url)
+        html = text_of(raw, hd)
+        print("        GET 搜索页 → HTTP %s  title=%s  需验证码=%s"
+              % (st, title_of(html), "系统安全验证" in html))
+        print("        会话 cookie: %s" % [(c.name, c.value) for c in jar])
+        im = re.search(r'src="([^"]*vdimgck[^"]*)"', html)
+        if not im:
+            print("        没有验证码图，可能这个会话已经通过了")
+            return
+        iu = urllib.parse.urljoin(BASE + "search.php", im.group(1))
+        st2, hd2, iraw = go(iu)
+        img = os.path.join(tempfile.gettempdir(), "ting22_captcha.jpg")
+        with open(img, "wb") as f:
+            f.write(iraw)
+        jar.save(ignore_discard=True, ignore_expires=True)
+        print("        验证码图 %d 字节 → %s（请读出算式）" % (len(iraw), img))
+        print("        下一趟：probe_ting22.py captcha <答案>")
+        return
+
+    # ---- 第二趟：只提交，不碰图片 ----
+    print("        带着会话 cookie 直接提交答案（不重新取图，否则答案失效）")
+    print("        会话 cookie: %s" % [(c.name, c.value) for c in jar])
+    body = urllib.parse.urlencode({"validate": answer, "searchword": kw}).encode()
+    st3, hd3, raw3 = go(check_url, data=body, referer=search_url)
+    h3 = text_of(raw3, hd3)
+    n3 = len(re.findall(r'href="(/books/\d+\.html)"', h3))
+    print("        POST validate=%s → HTTP %s  %d 字节  title=%s  结果=%d"
+          % (answer, st3, len(raw3), title_of(h3), n3))
+    if n3:
+        books = re.findall(r'href="(/books/\d+\.html)"[^>]*class="f-bold"[^>]*>([^<]*)<', h3)
+        if not books:
+            books = re.findall(r'<a href="(/books/\d+\.html)" class="f-bold">([^<]*)</a>', h3)
+        for u, t in books[:5]:
+            print("          · %s  %s" % (t, u))
+    jar.save(ignore_discard=True, ignore_expires=True)
+    print("        过验证后的会话 cookie: %s" % [(c.name, c.value) for c in jar])
+
+    # 同一会话再搜一次（不提交验证码）—— 验证「过一次验证码后本会话是否长期可用」
+    time.sleep(7)
+    st4, hd4, raw4 = go(search_url)
+    h4 = text_of(raw4, hd4)
+    print("        同一会话再搜 → HTTP %s  title=%-14s 需验证码=%s 结果=%d"
+          % (st4, title_of(h4), "系统安全验证" in h4,
+             len(re.findall(r'href="(/books/\d+\.html)"', h4))))
+
+    # 换一个全新会话（不带任何 cookie）再搜一次：验证码是「按会话」还是「按 IP/时间」
+    time.sleep(7)
+    fresh = http.cookiejar.CookieJar()
+    op2 = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(fresh))
+    req = urllib.request.Request(search_url)
+    req.add_header("User-Agent", UA_M)
+    req.add_header("Referer", BASE)
+    try:
+        with op2.open(req, timeout=45) as r:
+            h5 = r.read().decode("utf-8", "replace")
+        print("        换全新会话再搜 → HTTP %s  title=%-14s 需验证码=%s 结果=%d"
+              % (r.status, title_of(h5), "系统安全验证" in h5,
+                 len(re.findall(r'href="(/books/\d+\.html)"', h5))))
+    except Exception as e:
+        print("        换全新会话再搜 → ❌ %s" % str(e)[:70])
+
+
+# --------------------------------------------------------------------------
+# ②d 换 UA / 换 Referer 能不能绕过验证码（爬虫 UA 白名单常见）
+# --------------------------------------------------------------------------
+
+def probe_ua():
+    head("②d 换 UA / Referer 能不能绕过验证码（每次都用全新会话）")
+
+    kw = "三体"
+    q = urllib.parse.quote(kw)
+    uas = [
+        ("mobile Chrome", UA_M),
+        ("desktop Chrome", UA_D),
+        ("Baiduspider", "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)"),
+        ("Googlebot", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"),
+        ("Sogou", "Sogou web spider/4.0(+http://www.sogou.com/docs/help/webmasters.htm#07)"),
+        ("360Spider", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 360Spider"),
+        ("空 UA", ""),
+        ("iPhone Safari", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"),
+        ("WeChat", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 MicroMessenger/8.0.44"),
+    ]
+    for label, ua in uas:
+        jar = http.cookiejar.CookieJar()
+        op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        req = urllib.request.Request(BASE + "search.php?searchword=" + q)
+        if ua:
+            req.add_header("User-Agent", ua)
+        req.add_header("Referer", BASE)
+        try:
+            with op.open(req, timeout=45) as r:
+                h = r.read().decode("utf-8", "replace")
+            n = len(re.findall(r'href="(/books/\d+\.html)"', h))
+            print("        %-16s HTTP %s  title=%-16s 验证码=%-5s 结果=%d"
+                  % (label, r.status, title_of(h), "系统安全验证" in h, n))
+        except Exception as e:
+            print("        %-16s ❌ %s" % (label, str(e)[:60]))
+        time.sleep(6.5)
+
+    # Referer 各种花样（同会话仍有意义：第一次拿验证码，第二次带不同 Referer）
+    print()
+    print("[Referer 花样]")
+    for label, ref in [("无 Referer", None),
+                       ("站内搜索页", BASE + "search.php?searchword=" + q),
+                       ("首页", BASE),
+                       ("百度", "https://www.baidu.com/")]:
+        jar = http.cookiejar.CookieJar()
+        op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        req = urllib.request.Request(BASE + "search.php?searchword=" + q)
+        req.add_header("User-Agent", UA_M)
+        if ref:
+            req.add_header("Referer", ref)
+        try:
+            with op.open(req, timeout=45) as r:
+                h = r.read().decode("utf-8", "replace")
+            print("        %-16s HTTP %s  title=%-16s 验证码=%-5s 结果=%d"
+                  % (label, r.status, title_of(h), "系统安全验证" in h,
+                     len(re.findall(r'href="(/books/\d+\.html)"', h))))
+        except Exception as e:
+            print("        %-16s ❌ %s" % (label, str(e)[:60]))
+        time.sleep(6.5)
+
+    # 验证码图响应头里会不会漏答案
+    print()
+    print("[验证码图响应头]")
+    jar = http.cookiejar.CookieJar()
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    req = urllib.request.Request(BASE + "search.php?searchword=" + q)
+    req.add_header("User-Agent", UA_M)
+    with op.open(req, timeout=45) as r:
+        h = r.read().decode("utf-8", "replace")
+    req2 = urllib.request.Request(BASE + "include/vdimgck.php")
+    req2.add_header("User-Agent", UA_M)
+    req2.add_header("Referer", BASE + "search.php?searchword=" + q)
+    with op.open(req2, timeout=45) as r:
+        print("        HTTP %s" % r.status)
+        for k, v in r.headers.items():
+            print("          %s: %s" % (k, v))
+        print("        图 %d 字节" % len(r.read()))
+
+
+# --------------------------------------------------------------------------
+# ②e 书籍详情页：挑出 author/artist/intro 能用的稳定选择器
+#     （两个引擎都是「取第一个命中节点」，所以第一个 p.f-gray 是谁很关键）
+# --------------------------------------------------------------------------
+
+def probe_detail(book_url=None):
+    head("②e 书籍详情页 p 元素清单 + 候选选择器实测")
+
+    book_url = book_url or (BASE + "books/2220945.html")
+    st, hd, raw = get(book_url, referer=BASE)
+    html = text_of(raw, hd)
+    print("[详情页] %s → HTTP %s  %d 字节  title=%s" % (book_url, st, len(raw), title_of(html)))
+
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "lxml")
+    print()
+    print("  详情区所有 <p>（按文档顺序，就是引擎 pool[0] 的取法）：")
+    for i, p in enumerate(soup.select("p")):
+        cls = " ".join(p.get("class") or [])
+        txt = p.get_text(" ", strip=True)
+        if not txt:
+            continue
+        print("    [%2d] class=%-24s %s" % (i, cls[:24], txt[:90]))
+        if i > 18:
+            print("    …（后面省略）")
+            break
+
+    print()
+    print("  候选选择器 → 引擎实际会取到的第一个节点文本：")
+    print("  （App 的 MiniHTML 只认 tag/.class/#id/[attr]/[attr=v]/[attr*=v]/空格/>，没有伪类，")
+    print("    所以只能用 div.style-img.pd10 这个「详情头专属类」把推荐位排除掉）")
+    candidates = [
+        "p.f-gray@text",
+        "p.f-gray@regex(作者：(.*?)，由(.*?)播音,1)",
+        "div.style-img.pd10 section > p.f-gray@regex(作者：(.*?)，由(.*?)播音,1)",
+        "div.style-img.pd10 section > p.f-gray@regex(作者：(.*?)，由(.*?)播音,2)",
+        "div.style-img.pd10 section > p.txt-ov@regex(播音：(.*))",
+        "div.style-img.pd10 section > p.f-gray@regex(内容介绍：(.*))",
+        "h1.style-title@text",
+        "div.style-img.pd10 img@src",
+        ".style-img img@src",
+        "#yuedu ul.ul-36 li a@title",
+        "#yuedu ul.ul-36 li a@href",
+    ]
+    for c in candidates:
+        try:
+            v = R.extract(c, [soup])
+        except Exception as e:
+            v = "<异常 %s>" % str(e)[:40]
+        print("    %-62s → %s" % (c, (v or "(空)")[:70]))
+
+
+# --------------------------------------------------------------------------
 # ③ 用规则引擎跑分类链路（证据）
 # --------------------------------------------------------------------------
 
@@ -328,9 +568,99 @@ CANDIDATE = {
 }
 
 
-def probe_engine():
-    head("③ 规则引擎链路：do_menus → 分类第一页 → 第一本 → 章节 → 音频 → 试听")
-    rule = CANDIDATE
+def load_rule():
+    """优先读真正要交付的规则文件；没有就用内置草稿"""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending", "ting22.json")
+    if os.path.exists(p):
+        with open(p, encoding="utf-8") as f:
+            rules = json.load(f)
+        print("[规则来源] %s（%d 条）" % (p, len(rules)))
+        return rules[0]
+    print("[规则来源] 内置草稿 CANDIDATE（pending/ting22.json 不存在）")
+    return CANDIDATE
+
+
+def engine_chain(rule, books, label):
+    """books → do_detail → do_audio → Range 试听"""
+    print()
+    print("【%s】%d 本，取第一本走完链路" % (label, len(books)))
+    for b in books[:3]:
+        print("    · %-24s | %s | 作者=%s 播音=%s"
+              % (b["title"][:24], b["url"], b["author"], b["artist"]))
+    if not books:
+        print("    ❌ 没拿到书")
+        return
+    b = books[0]
+
+    print()
+    print("[② 章节] do_detail(%s)" % b["url"])
+    t0 = time.time()
+    eps = R.do_detail(rule, b)
+    print("    → 章节 %d 集（%.1fs）" % (len(eps), time.time() - t0))
+    if not eps:
+        print("    ❌ 没解析出章节")
+        return
+    print("    第一集：%s  →  %s" % (eps[0]["title"], eps[0]["url"]))
+    print("    最后一集：%s  →  %s" % (eps[-1]["title"], eps[-1]["url"]))
+
+    print()
+    print("[③ 音频] do_audio(%s)" % eps[0]["url"])
+    url, headers = R.do_audio(rule, eps[0])
+    print("    → %s" % url)
+    print("    请求头：%s" % headers)
+    if not url:
+        print("    ❌ 没取到音频地址")
+        return
+
+    print()
+    print("[④ 试听] Range bytes=0-1024")
+    req = urllib.request.Request(url)
+    req.add_header("Range", "bytes=0-1024")
+    req.add_header("User-Agent", R.UA_D)
+    for k, v in headers.items():
+        req.add_header(k, v)
+    try:
+        with R.OPENER.open(req, timeout=45) as r:
+            data = r.read(1025)
+            print("    → HTTP %s  %s  %d 字节  ✅"
+                  % (r.status, r.headers.get("Content-Type"), len(data)))
+    except Exception as e:
+        print("    → ❌ %s" % e)
+
+
+def probe_engine(mode="category"):
+    """用 rule_engine（App 规则引擎的 Python 复刻）+ 真正交付的规则文件跑链路。
+
+    mode=category : 走分类（不需要验证码）
+    mode=search   : 走搜索（需要先把「过过验证码的会话」灌进引擎的 cookie jar）
+    """
+    rule = load_rule()
+
+    if mode == "search":
+        head("③b 搜索链路（把过过验证码的会话灌进 rule_engine.JAR，再跑 do_search）")
+        jar = http.cookiejar.LWPCookieJar(JAR_FILE)
+        if not os.path.exists(JAR_FILE):
+            print("    ❌ 没有会话文件 %s，先跑：probe_ting22.py captcha <答案>" % JAR_FILE)
+            return
+        jar.load(ignore_discard=True, ignore_expires=True)
+        n = 0
+        for c in jar:
+            R.JAR.set_cookie(http.cookiejar.Cookie(
+                0, c.name, urllib.parse.quote(c.value, safe=""), None, False,
+                c.domain, False, False, "/", True, False, None, False, None, None, {}))
+            n += 1
+        print("    已灌入 %d 个 cookie：%s" % (n, [(c.name, c.value) for c in jar]))
+        print("    注意：这一步只是证明「规则的搜索选择器是对的」，")
+        print("          冷会话直接搜索一定会被站点弹验证码（见 ② 段）。")
+        print("    站点限制「搜索 6 秒一次」，先等 8 秒避免撞限流…")
+        time.sleep(8)
+        books = R.do_search(rule, "三体")
+        print()
+        print("[① 搜索] do_search(三体) → %d 条" % len(books))
+        engine_chain(rule, books, "搜索结果")
+        return
+
+    head("③a 分类链路：do_menus → 分类第一页 → 第一本 → 章节 → 音频 → 试听")
 
     menus = R.do_menus(rule)
     print("[do_menus] 共 %d 个分类" % len(menus))
@@ -338,61 +668,25 @@ def probe_engine():
     for g, t, u in menus:
         groups.setdefault(g, []).append((t, u))
     for g, items in groups.items():
-        print("        %s（%d）：%s" % (g, len(items), "、".join(t for t, _ in items)))
+        print("    %s（%d）：%s" % (g, len(items), "、".join(t for t, _ in items)))
 
-    # 分类第一页
     cat_url = menus[0][2]
     print()
-    print("[分类第一页] %s" % cat_url)
+    print("[① 分类第一页] %s" % cat_url)
     html = R.fetch(cat_url, referer=BASE, desktop=False)
-    books = R.parse_list(html, {"list": rule["search"]["list"],
-                                "title": rule["search"]["title"],
-                                "urlRule": rule["search"]["urlRule"],
-                                "cover": rule["search"]["cover"],
-                                "author": rule["search"]["author"],
-                                "artist": rule["search"]["artist"]}, rule)
-    print("        → %d 本" % len(books))
-    for b in books[:3]:
-        print("          %-22s | %s | 作者=%s 播音=%s | %s"
-              % (b["title"][:22], b["url"], b["author"], b["artist"], b["cover"][:60]))
-    if not books:
-        print("        ❌ 分类页没解析出书")
-        return
-    b = books[0]
+    lr = rule.get("search") or {}
+    books = R.parse_list(html, {"list": lr.get("list"),
+                                "title": lr.get("title"),
+                                "urlRule": lr.get("urlRule"),
+                                "cover": lr.get("cover"),
+                                "author": lr.get("author"),
+                                "artist": lr.get("artist")}, rule)
+    engine_chain(rule, books, "分类第一页")
 
-    # 章节
-    print()
-    print("[章节] %s" % b["url"])
-    t0 = time.time()
-    eps = R.do_detail(rule, b)
-    print("        → %d 集（%.1fs）" % (len(eps), time.time() - t0))
-    if not eps:
-        print("        ❌ 没解析出章节")
-        return
-    print("        第一集：%s  %s" % (eps[0]["title"], eps[0]["url"]))
-    print("        最后一集：%s  %s" % (eps[-1]["title"], eps[-1]["url"]))
 
-    # 音频
-    print()
-    print("[音频] %s" % eps[0]["url"])
-    url, headers = R.do_audio(rule, eps[0])
-    print("        → %s" % url)
-    print("        请求头：%s" % headers)
-
-    # 试听
-    req = urllib.request.Request(url)
-    req.add_header("Range", "bytes=0-1024")
-    req.add_header("User-Agent", UA_M)
-    for k, v in headers.items():
-        req.add_header(k, v)
-    try:
-        with R.OPENER.open(req, timeout=45) as r:
-            data = r.read(1025)
-            print("        试听 → HTTP %s  %s  %d 字节  ✅"
-                  % (r.status, r.headers.get("Content-Type"), len(data)))
-    except Exception as e:
-        print("        试听 → ❌ %s" % e)
-
+# --------------------------------------------------------------------------
+# 入口
+# --------------------------------------------------------------------------
 
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -402,5 +696,13 @@ if __name__ == "__main__":
         probe_search()
     if which in ("all", "forge"):
         probe_forge()
+    if which == "ua":
+        probe_ua()
+    if which == "detail":
+        probe_detail(sys.argv[2] if len(sys.argv) > 2 else None)
+    if which == "captcha":
+        probe_captcha(sys.argv[2] if len(sys.argv) > 2 else None)
     if which in ("all", "engine"):
-        probe_engine()
+        probe_engine("category")
+    if which == "engine-search":
+        probe_engine("search")
