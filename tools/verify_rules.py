@@ -19,19 +19,38 @@ sys.stdout.reconfigure(encoding="utf-8")
 def check(rule, kw):
     print("=" * 68)
     print("【%s】%s" % (rule["name"], rule["host"]))
-    if not rule.get("search"):
-        print("   （没有搜索规则，跳过）")
-        return None
 
-    try:
-        books = R.do_search(rule, kw)
-    except Exception as e:
-        print("   ❌ 搜索失败：%s" % e)
-        return False
-    print("   ① 搜索「%s」→ %d 条" % (kw, len(books)))
-    if not books:
-        return False
-    b = books[0]
+    b = None
+    # 有站内搜索就走搜索；没有 / 明确 searchable:false 就走分类
+    if rule.get("search") and rule.get("searchable") is not False:
+        try:
+            books = R.do_search(rule, kw)
+        except Exception as e:
+            print("   ⚠ 搜索失败（改走分类）：%s" % e)
+            books = []
+        print("   ① 搜索「%s」→ %d 条" % (kw, len(books)))
+        if books:
+            b = books[0]
+    if b is None:
+        try:
+            menus = R.do_menus(rule)
+        except Exception as e:
+            print("   ❌ 分类导航失败：%s" % e)
+            return False
+        if not menus:
+            print("   ❌ 既搜不到也没有分类导航")
+            return False
+        group, cat_title, cat_url = menus[0]
+        try:
+            books = R.do_category(rule, cat_url, 1)
+        except Exception as e:
+            print("   ❌ 分类列表失败：%s" % e)
+            return False
+        print("   ①' 分类「%s / %s」→ %d 本" % (group, cat_title, len(books)))
+        if not books:
+            return False
+        b = books[0]
+
     print("      第一本：%s" % b["title"])
     print("      链接  ：%s" % b["url"])
     if b.get("artist"):

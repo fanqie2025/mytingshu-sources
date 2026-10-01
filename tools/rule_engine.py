@@ -164,7 +164,7 @@ def normalize_literal(text):
 def load_literal(text):
     """字面量 → Python 对象：先归一化再 json.loads，失败退回 ast.literal_eval"""
     try:
-        return json.loads(normalize_literal(text))
+        return json.loads(normalize_literal(strip_bom(text)))
     except Exception:
         pass
     try:
@@ -234,7 +234,7 @@ def extract(rule, nodes):
     if sel:
         out = []
         for n in pool:
-            out.extend(n.select(sel))
+            out.extend(n.select(fix_sel(sel)))
         pool = out
     if not pool:
         return ""
@@ -330,6 +330,11 @@ def _any_at(path, obj):
     return cur
 
 
+def strip_bom(t):
+    """去掉 UTF-8 BOM —— 有听网的音频接口返回就带 BOM，json.loads 会直接报错"""
+    return t.lstrip("\ufeff") if isinstance(t, str) else t
+
+
 def clean_text(s):
     """文本字段统一清洗：去标签 + 实体 + 再解一层 \\uXXXX（酷我 ft=music 的 ARTIST 是 \\u0026）"""
     if not s:
@@ -399,7 +404,7 @@ def parse_json_list_obj(obj, lr, host):
 def parse_json_list(text, lr, host):
     """标准 JSON 模式"""
     try:
-        obj = json.loads(text)
+        obj = json.loads(strip_bom(text))
     except Exception:
         return []
     return parse_json_list_obj(obj, lr, host)
@@ -411,6 +416,36 @@ def parse_literal_list(text, lr, host):
     if obj is None:
         return []
     return parse_json_list_obj(obj, lr, host)
+
+
+def fix_sel(sel):
+    """bs4/soupsieve 要求属性值带引号：a[href*=/book/] → a[href*="/book/"]（Swift 侧两种都认）"""
+    if not isinstance(sel, str) or "[" not in sel:
+        return sel
+    return re.sub(r"\[([A-Za-z_:.-]+)([*^$~|]?=)([^\"'\]\[]+)\]",
+                  lambda m: '[%s%s"%s"]' % (m.group(1), m.group(2), m.group(3).strip()), sel)
+
+
+def do_category(rule, cat_url, page=1):
+    """分类列表（镜像 Swift 的 books(in:)：支持 apiVars 与 JSON/literal 模式）"""
+    lr = rule.get("search") or {}
+    host = rule["host"]
+    desktop = (lr.get("ua") or rule.get("ua") or "mobile").lower() == "desktop"
+    url = cat_url
+    variables = {}
+    if lr.get("apiVars"):
+        page_html = fetch(cat_url, referer=host + "/", desktop=desktop)
+        for key, var_name in lr["apiVars"].items():
+            m = re.search(r"var\s+%s\s*=\s*['\"]([^'\"]*)['\"]" % re.escape(var_name), page_html)
+            variables[key] = m.group(1) if m else ""
+        url = fill(lr["url"], host, page=page, extra=variables)
+    elif page > 1:
+        if lr.get("pageUrl"):
+            url = fill(lr["pageUrl"], host, page=page)
+        elif "?" in url:
+            url = "%s&page=%d" % (url, page)
+    text = fetch(url, referer=host + "/", desktop=desktop, headers=lr.get("headers"))
+    return parse_list(text, lr, rule)
 
 
 def parse_list(html, lr, rule):
@@ -465,7 +500,7 @@ def do_detail(rule, book):
     html = fetch(detail_url, referer=host + "/", desktop=desktop, encoding=enc)
 
     if kind in ("json", "literal"):
-        obj = json.loads(html) if kind == "json" else load_literal(html)
+        obj = json.loads(strip_bom(html)) if kind == "json" else load_literal(strip_bom(html))
         if not isinstance(obj, (dict, list)):
             raise RuntimeError("详情响应不是 %s 结构" % kind)
         arr = _any_at(d["episodes"], obj) or []
@@ -502,7 +537,7 @@ def do_detail(rule, book):
                 url = dir_url + ("&" if "?" in dir_url else "?") + "page=%d" % page_no
             page_html = fetch(url, referer=book["url"], desktop=dir_desktop, encoding=enc)
             psoup = BeautifulSoup(page_html, "lxml")
-            nodes = psoup.select(d["episodes"])
+            nodes = psoup.select(fix_sel(d["episodes"]))
             added = 0
             for n in nodes:
                 t = extract(d.get("episodeTitle") or "@text", [n])
@@ -519,7 +554,7 @@ def do_detail(rule, book):
             page_no += 1
         return episodes
 
-    nodes = soup.select(d["episodes"])
+    nodes = soup.select(fix_sel(d["episodes"]))
     out = []
     for n in nodes:
         t = extract(d.get("episodeTitle") or "@text", [n])
@@ -621,14 +656,14 @@ def do_audio(rule, ep):
                 raw = ""
                 if a.get("field"):
                     try:
-                        raw = value_at(a["field"], json.loads(text))
+                        raw = value_at(a["field"], json.loads(strip_bom(text)))
                     except Exception:
                         obj = load_literal(text)
                         if isinstance(obj, (dict, list)):
                             raw = value_at(a["field"], obj)
                 if not raw and a.get("fieldAlt"):
                     try:
-                        raw = value_at(a["fieldAlt"], json.loads(text))
+                        raw = value_at(a["fieldAlt"], json.loads(strip_bom(text)))
                     except Exception:
                         pass
                 if not raw and a.get("pattern"):
@@ -703,12 +738,12 @@ def do_audio(rule, ep):
                     resp = fetch(api, method="post", body=body, headers=headers,
                                  referer=referer, desktop=desktop)
                 if a.get("statusField"):
-                    st = value_at(a["statusField"], json.loads(resp or "{}"))
+                    st = value_at(a["statusField"], json.loads(strip_bom(resp) or "{}"))
                     if a.get("statusOK") and st != a["statusOK"]:
                         last = "接口状态 %s ≠ %s（可能被限流）" % (st or "?", a["statusOK"])
                         continue
                 raw = ""
-                obj = json.loads(resp or "{}")
+                obj = json.loads(strip_bom(resp) or "{}")
                 if a.get("field"):
                     raw = value_at(a["field"], obj)
                 if not raw and a.get("fieldAlt"):
