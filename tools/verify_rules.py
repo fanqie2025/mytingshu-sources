@@ -67,16 +67,20 @@ def check(rule, kw):
     print("      第一集：%s" % eps[0]["title"][:44])
     print("      链接  ：%s" % eps[0]["url"])
 
-    try:
-        url, headers = R.do_audio(rule, eps[0])
-    except Exception as e:
-        print("   ❌ 音频失败：%s" % e)
-        return False
-    print("   ③ 音频  ：%s" % url[:100])
-
-    try:
+    # 音频：前几集都试一遍（有些站的第一集是主题曲/预告，站方单独保护会 403）
+    import time
+    problems = []
+    for idx, ep in enumerate(eps[:5]):
+        try:
+            url, headers = R.do_audio(rule, ep)
+        except Exception as e:
+            problems.append("#%d 取地址失败 %s" % (idx + 1, str(e)[:50]))
+            continue
+        if not url:
+            problems.append("#%d 空地址" % (idx + 1))
+            continue
         last = ""
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 req = urllib.request.Request(url)
                 req.add_header("Range", "bytes=0-1024")
@@ -87,19 +91,20 @@ def check(rule, kw):
                     data = r.read(1025)
                     ct = r.headers.get("Content-Type") or ""
                     ok = (r.status in (200, 206)) and ("audio" in ct or "video" in ct or "octet" in ct)
-                    print("   ④ 试听  ：HTTP %s %s %d 字节  %s" % (r.status, ct, len(data), "✅" if ok else "❌"))
-                    return ok
+                    if ok:
+                        if idx > 0:
+                            print("   （第 1 集站方保护/失效，跳过：%s）" % problems[:1])
+                        print("   ③ 音频  ：%s" % url[:96])
+                        print("      取自  ：第 %d 集 %s" % (idx + 1, ep["title"][:30]))
+                        print("   ④ 试听  ：HTTP %s %s %d 字节  ✅" % (r.status, ct, len(data)))
+                        return True
+                    last = "HTTP %s %s" % (r.status, ct)
             except Exception as e:
-                last = str(e)
-                if attempt < 2:
-                    print("   ④ 试听  ：第 %d 次失败（%s），重试…" % (attempt + 1, last[:60]))
-                    import time
-                    time.sleep(3)
-        print("   ④ 试听  ：❌ %s" % last)
-        return False
-    except Exception as e:
-        print("   ④ 试听  ：❌ %s" % e)
-        return False
+                last = str(e)[:60]
+                time.sleep(2)
+        problems.append("#%d %s" % (idx + 1, last))
+    print("   ❌ 前几集都取不到可播地址：%s" % "；".join(problems[:4]))
+    return False
 
 
 if __name__ == "__main__":
