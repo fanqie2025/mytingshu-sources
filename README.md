@@ -1,7 +1,25 @@
-# 我的听书 · 书源（私有）
+# 我的听书 · 书源
 
-**仅供本人自用测试。** 这里放抓站书源的实现与校验脚本；公开的 App 仓库只保留书源**格式说明**，
-不包含任何具体站点实现。
+抓站书源的实现与校验脚本。**仅供本人自用测试**：公开的 App 仓库只保留书源**格式说明**，
+具体站点实现都在这里。
+
+## 在 App 里导入（公开仓库，直接填地址即可）
+
+`设置 → 源管理 → 导入书源 → 用默认订阅地址（一键导入）`，或手填下面任一条：
+
+```
+https://cdn.jsdelivr.net/gh/fanqie2025/mytingshu-sources@main/subscription/sources.json
+https://raw.githubusercontent.com/fanqie2025/mytingshu-sources/main/subscription/sources.json
+```
+
+> 国内建议用 **jsDelivr** 那条（`raw.githubusercontent.com` 经常连不上）。
+> 也可以直接把 `subscription/sources.json` 的内容粘贴进「粘贴 JSON」框。
+
+改完 `sources.json` 后，清一次 CDN 缓存，App 里重新导入一次（同 id 的规则会覆盖旧的）：
+
+```bash
+curl "https://purge.jsdelivr.net/gh/fanqie2025/mytingshu-sources@main/subscription/sources.json"
+```
 
 ## 内容
 
@@ -12,18 +30,6 @@
 | `tools/live_tests/*_verify.py` | 各站单独的真实链路校验脚本（搜索/分类/详情/章节/直链六项） |
 | `tools/guard_solver.py` | 「反转 + base64」型 JS Cookie 守卫的解 cookie 逻辑（PTCMS 要写两个 cookie，少写一个就会一直停在挑战页） |
 | `native-sources/*.swift` | 需要站点专属逻辑、**JSON 规则表达不了**的源（编译进 App 用；App 已改为外壳，这里是归档） |
-
-## 在 App 里导入
-
-App 是私有的，`raw.githubusercontent.com` 匿名访问会 404，二选一：
-
-1. **带 token 的地址**（推荐自用；token 只存在你自己手机里）：
-   ```
-   https://<你的PAT>@raw.githubusercontent.com/fanqie2025/mytingshu-sources/main/subscription/sources.json
-   ```
-2. **直接粘贴 JSON**：把 `subscription/sources.json` 的内容复制进 App 的「粘贴 JSON」框。
-
-改完 `sources.json` 记得在 App 里重新导入一次（同 id 的规则会覆盖旧的）。
 
 ## 本机跑校验
 
