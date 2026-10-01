@@ -7,7 +7,7 @@
     "ua": "mobile",
     "searchable": true,
     "discoverable": true,
-    "desc": "29听书网（安安听书网）草稿。分类导航从 /sort/ 动态抓（实测 4 组 32 个分类）；搜索与分类列表都是 JSON 接口（Content-Type 标成 text/html，只看 body）；目录在 /bookdir/{h1}/{h2}.html，走 JS Cookie 守卫（引擎自动解 pt_guid），hash 每次抓 /book/ 都会变所以必须现抓，且**每页 50 章要翻页**（文档说「一次给全部」不成立）；音频取 PC 站 www.ting29.com/player.html 的纯 HTML（m 站 /player.html 是 404），页面里 `mp3:` 是字符串拼接表达式、变量名与形态每次请求都变，所以要引擎求值而不是写死正则。音频繁请写小写 pcplayer（Swift 侧 a.type.lowercased() 不挑大小写，但 Python 复刻 tools/rule_engine.py 是 a[type] == pcplayer 的严格小写比较，写 pcPlayer 会一条分支都不匹配、直接报「取音频失败」）。注意 audio.type=pcplayer 与 search.categoryUrl 是本次要求新增的引擎能力，字段没生效就说明引擎还没实现（详见探测报告）。",
+    "desc": "29听书网（安安听书网）草稿。分类导航从 /sort/ 动态抓（实测 4 组 32 个分类）；搜索与分类列表都是 JSON 接口（Content-Type 标成 text/html，只看 body）；目录在 /bookdir/{h1}/{h2}.html，走 JS Cookie 守卫（引擎自动解 pt_guid），hash 每次抓 /book/ 都会变所以必须现抓，且**每页 50 章要翻页**（文档说「一次给全部」不成立）；音频取 PC 站 www.ting29.com/player.html 的纯 HTML（m 站 /player.html 是 404），页面里 `mp3:` 是字符串拼接表达式、变量名与形态每次请求都变，所以要引擎求值而不是写死正则。音频那步请写小写 pcplayer（Swift 侧 a.type.lowercased() 不挑大小写，但 Python 复刻 tools/rule_engine.py 是 a[type] == pcplayer 的严格小写比较，写 pcPlayer 会一条分支都不匹配、直接报「取音频失败」）。注意 audio.type=pcplayer 与 search.categoryUrl 是本次要求新增的引擎能力，字段没生效就说明引擎还没实现（详见探测报告）。",
     "search": {
       "kind": "json",
       "url": "{host}/api/ajax/solist?word={kw}&type=name&page={page}&order=1",
@@ -29,7 +29,7 @@
       "url": "{host}/sort/",
       "group": "dl.pd-class",
       "groupTitle": "dt a@text",
-      "item": "dd a[href^=\"/book/\"]",
+      "item": "dd a[href*=\"/book/\"]",
       "title": "@title",
       "urlRule": "@href",
       "ua": "mobile"
@@ -42,7 +42,7 @@
       "episodeTitle": "@title",
       "episodeUrl": "@href",
       "cover": "img.book-cover@src",
-      "artist": "div.book-rand-a a[href^=\"/boyin/\"]@text",
+      "artist": "div.book-rand-a a[href*=\"/boyin/\"]@text",
       "intro": "div.book-des@text"
     },
     "audio": {

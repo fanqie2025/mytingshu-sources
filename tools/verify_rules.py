@@ -16,7 +16,7 @@ import rule_engine as R
 sys.stdout.reconfigure(encoding="utf-8")
 
 
-def check(rule, kw):
+def check(rule, kw, book_index=0):
     print("=" * 68)
     print("【%s】%s" % (rule["name"], rule["host"]))
 
@@ -30,7 +30,10 @@ def check(rule, kw):
             books = []
         print("   ① 搜索「%s」→ %d 条" % (kw, len(books)))
         if books:
-            b = books[0]
+            if book_index >= len(books):
+                print("   （候选书不够，跳过）")
+                return False
+            b = books[book_index]
     if b is None:
         try:
             menus = R.do_menus(rule)
@@ -49,7 +52,10 @@ def check(rule, kw):
         print("   ①' 分类「%s / %s」→ %d 本" % (group, cat_title, len(books)))
         if not books:
             return False
-        b = books[0]
+        if book_index >= len(books):
+            print("   （候选书不够，跳过）")
+            return False
+        b = books[book_index]
 
     print("      第一本：%s" % b["title"])
     print("      链接  ：%s" % b["url"])
@@ -118,7 +124,14 @@ if __name__ == "__main__":
     results = []
     for r in rules:
         try:
-            results.append((r["id"], check(r, kw)))
+            ok = check(r, kw)
+            # 第一本不行就换候选书：有的书音频在别的 CDN 上（本机海外出口时部分 CDN 不可达）
+            alt = 1
+            while ok is False and alt <= 2:
+                print("   ↻ 换第 %d 本候选书再试…" % (alt + 1))
+                ok = check(r, kw, book_index=alt)
+                alt += 1
+            results.append((r["id"], ok))
         except Exception as e:
             print("   ❌ %s 异常：%s" % (r["id"], e))
             results.append((r["id"], False))
@@ -129,3 +142,4 @@ if __name__ == "__main__":
     bad = [r for r, ok in results if ok is False]
     print("全部通过" if not bad else "有失败：%s" % bad)
     sys.exit(1 if bad else 0)
+

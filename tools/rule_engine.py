@@ -80,12 +80,21 @@ def fetch(url, method="get", body=None, headers=None, referer=None, desktop=Fals
         data = body.encode() if (method == "post" and body is not None) else None
         if data is not None:
             h.setdefault("Content-Type", "application/x-www-form-urlencoded")
-        req = urllib.request.Request(url, data=data)
-        for k, v in h.items():
-            req.add_header(k, v)
-        with OPENER.open(req, timeout=45) as r:
-            raw = r.read()
-        return raw.decode(encoding, "replace")
+        # 网络错误重试：恋听/22听 这类站 TLS 很不稳定，单次失败不是结论
+        last = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, data=data)
+                for k, v in h.items():
+                    req.add_header(k, v)
+                with OPENER.open(req, timeout=45) as r:
+                    raw = r.read()
+                return raw.decode(encoding, "replace")
+            except Exception as e:            # noqa: BLE001
+                last = e
+                if attempt < 2:
+                    time.sleep(2 + attempt * 2)
+        raise last
 
     text = once()
     left = retries
@@ -306,6 +315,9 @@ def do_search(rule, kw, page=1):
     lr = rule.get("search")
     if not lr:
         return []
+    # 站点限流（22听书：搜索 6 秒一次）→ 规则里写 searchDelayMs 就在发请求前等
+    if lr.get("searchDelayMs"):
+        time.sleep(lr["searchDelayMs"] / 1000.0)
     host = rule["host"]
     url = fill(lr["url"], host, kw=kw, page=page)
     method = (lr.get("method") or "get").lower()
@@ -439,7 +451,7 @@ def do_category(rule, cat_url, page=1):
         for key, var_name in lr["apiVars"].items():
             m = re.search(r"var\s+%s\s*=\s*['\"]([^'\"]*)['\"]" % re.escape(var_name), page_html)
             variables[key] = m.group(1) if m else ""
-        url = fill(lr["url"], host, page=page, extra=variables)
+        url = fill(lr.get("categoryUrl") or lr["url"], host, page=page, extra=variables)
     elif page > 1:
         if lr.get("pageUrl"):
             url = fill(lr["pageUrl"], host, page=page)
@@ -575,43 +587,105 @@ def do_detail(rule, book):
 
 
 def media_expr_url(html):
-    """求值 PC 播放页里 `mp3:` 的字符串拼接表达式（29听书网）—— 与 Swift 侧同算法"""
-    assign = r"(?:var\s+)?([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*['\"]([^'\"]*)['\"]"
-    variables = dict(re.findall(assign, html))
-    m = re.search(r"\bmp3\s*:\s*([^\n\r]+)", html)
+    """求值 PC 播放页里 `mp3:` 的字符串拼接表达式（29听书网）—— 与 Swift 侧同算法。
+
+    变量值本身可能是表达式（形态 B：`urlN = ''+murlN+''`），必须递归求值；
+    截断要引号感知（顶层 , } ; 才算结束）；收下前校验确实是音频地址，
+    否则退化到全文兜底 —— 不然会静默返回缺扩展名的错地址。
+    算法参考子智能体 probe_ting29.py 的 collect_assignments/_cut/split_top_plus/eval_expr。
+    """
+    assigns = {}
+    for m in re.finditer(r"(?:var\s+)?([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*([^;\n]+)", html):
+        assigns[m.group(1)] = m.group(2).strip()      # 后写覆盖先写
+
+    m = re.search(r"\bmp3\s*:\s*([\s\S]+)", html)
     if m:
-        expr = m.group(1).split(",")[0]
-        parts, buf, quote = [], "", None
-        for ch in expr:
-            if quote:
-                if ch == quote:
-                    quote = None
-                buf += ch
-            elif ch in "'\"":
-                quote = ch
-                buf += ch
-            elif ch == "+":
-                parts.append(buf)
-                buf = ""
-            else:
-                buf += ch
-        parts.append(buf)
-        out, ok = "", True
-        for p in parts:
-            t = p.strip()
-            if not t:
-                continue
-            if t[0] in "'\"":
-                out += t[1:-1] if len(t) >= 2 else ""
-            elif t in variables:
-                out += variables[t]
-            else:
-                ok = False
-                break
-        if ok and out.startswith("http"):
+        expr = _cut_expr(m.group(1))
+        out = _eval_expr(expr, assigns)
+        if out and re.match(r"^https?://.+\.(mp3|m4a|aac)(\?|$)", out):
             return out
     m2 = re.search(r"(https?://[^'\"\s<>]+\.(?:mp3|m4a|aac))", html)
     return m2.group(1) if m2 else ""
+
+
+def _cut_expr(tail):
+    """顶层 , } ; 即止（引号内的不算）"""
+    buf, quote, prev, i = "", None, "", 0
+    while i < len(tail):
+        ch = tail[i]
+        if quote:
+            if ch == "\\" and i + 1 < len(tail):
+                buf += ch + tail[i + 1]
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            buf += ch
+        elif ch in "'\"":
+            quote = ch
+            buf += ch
+        elif ch in ",};":
+            break
+        else:
+            buf += ch
+        prev = ch
+        i += 1
+    return buf
+
+
+def _split_top_plus(expr):
+    """按顶层 + 拆开（引号内的 + 不拆）"""
+    parts, buf, quote, i = [], "", None, 0
+    while i < len(expr):
+        ch = expr[i]
+        if quote:
+            if ch == "\\" and i + 1 < len(expr):
+                buf += ch + expr[i + 1]
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            buf += ch
+        elif ch in "'\"":
+            quote = ch
+            buf += ch
+        elif ch == "+":
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+        i += 1
+    parts.append(buf)
+    return parts
+
+
+def _unquote(s):
+    if len(s) >= 2 and s[0] in "'\"" and s[-1] == s[0]:
+        s = s[1:-1]
+    elif s[:1] in ("'", '"'):
+        s = s[1:]
+    for a, b in (("\\/", "/"), ("\\'", "'"), ('\\"', '"'), ("\\\\", "\\")):
+        s = s.replace(a, b)
+    return s
+
+
+def _eval_expr(expr, assigns, depth=0):
+    """逐段求值并拼接；任一段解不出返回 None（整条作废，交给兜底）"""
+    if depth > 8:
+        return None
+    out = ""
+    for raw in _split_top_plus(expr):
+        p = raw.strip()
+        if not p:
+            continue
+        if p[0] in "'\"":
+            out += _unquote(p)
+        elif p in assigns:
+            sub = _eval_expr(assigns[p], assigns, depth + 1)
+            out += sub if sub is not None else _unquote(assigns[p])
+        else:
+            return None
+    return out or None
 
 
 def make_sign(sg, text):
@@ -647,13 +721,13 @@ def do_audio(rule, ep):
         if _attempt > 0 and a.get("retryDelayMs"):
             import time as _t; _t.sleep(a["retryDelayMs"] / 1000.0)
         try:
-            if a["type"] == "direct":
+            if (a["type"] or "").lower() == "direct":
                 return ep["url"], {"Referer": referer}
-            if a["type"] == "regex":
+            if (a["type"] or "").lower() == "regex":
                 html = fetch(ep["url"], referer=referer, desktop=desktop)
                 m = re.search(a["pattern"], html)
                 return (m.group(1) if m else "").replace("\\/", "/"), {"Referer": referer}
-            if a["type"] == "api":
+            if (a["type"] or "").lower() == "api":
                 # 通用版：从章节地址正则取变量 → 拼接口地址 → GET → 点号路径取值 → 退正则
                 variables = {"now": str(int(time.time()))}
                 for k, pat in (a.get("urlVars") or {}).items():
@@ -687,7 +761,7 @@ def do_audio(rule, ep):
                     if len(pair) >= 2:
                         final = final.replace(pair[0], pair[1])
                 return final, {"Referer": referer}
-            if a["type"] == "pcplayer":
+            if (a["type"] or "").lower() == "pcplayer":
                 variables = {"now": str(int(time.time()))}
                 for k, pat in (a.get("urlVars") or {}).items():
                     mm = re.search(pat, ep["url"])
@@ -695,7 +769,7 @@ def do_audio(rule, ep):
                 page_url = fill_text(a.get("url", ep["url"]), host, extra=variables)
                 html = fetch(page_url, referer=referer, desktop=True)
                 return media_expr_url(html), {"Referer": referer}
-            if a["type"] == "post":
+            if (a["type"] or "").lower() == "post":
                 # {now}：请求当刻的 epoch 秒（签名与 URL 必须用同一个值）
                 variables = {"now": str(int(time.time()))}
                 # 先从章节地址正则取变量（书音FM 的 id/movieId 都从地址里来）

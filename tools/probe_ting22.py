@@ -276,7 +276,7 @@ def probe_forge():
 JAR_FILE = os.path.join(tempfile.gettempdir(), "ting22_probe_cookies.lwp")
 
 
-def probe_captcha(answer=None):
+def probe_captcha(answer=None, quick=False):
     head("②c 验证码会话（answer=%s）" % (answer or "未给，只取图"))
 
     kw = "三体"
@@ -348,6 +348,11 @@ def probe_captcha(answer=None):
             print("          · %s  %s" % (t, u))
     jar.save(ignore_discard=True, ignore_expires=True)
     print("        过验证后的会话 cookie: %s" % [(c.name, c.value) for c in jar])
+
+    if quick:
+        # quick：站点「搜索 6 秒一次」，多搜一次就吃掉一次额度 —— 给后面的链路证明留额度
+        print("        （quick：跳过「同会话再搜 / 换新会话再搜」两项，省限流额度）")
+        return
 
     # 同一会话再搜一次（不提交验证码）—— 验证「过一次验证码后本会话是否长期可用」
     time.sleep(7)
@@ -568,6 +573,22 @@ CANDIDATE = {
 }
 
 
+def retry(fn, tries=3, delay=5, label=""):
+    """rule_engine.fetch 只对 JS 守卫重试，不对网络错误重试；
+    22ting 在 Cloudflare 后面，TLS/读取时不时超时，所以这里包一层。"""
+    last = None
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:
+            last = e
+            if i < tries - 1:
+                print("    … %s 第 %d 次失败（%s），%d 秒后重试"
+                      % (label, i + 1, str(e)[:60], delay))
+                time.sleep(delay)
+    raise last
+
+
 def load_rule():
     """优先读真正要交付的规则文件；没有就用内置草稿"""
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending", "ting22.json")
@@ -595,7 +616,7 @@ def engine_chain(rule, books, label):
     print()
     print("[② 章节] do_detail(%s)" % b["url"])
     t0 = time.time()
-    eps = R.do_detail(rule, b)
+    eps = retry(lambda: R.do_detail(rule, b), label="do_detail")
     print("    → 章节 %d 集（%.1fs）" % (len(eps), time.time() - t0))
     if not eps:
         print("    ❌ 没解析出章节")
@@ -652,11 +673,23 @@ def probe_engine(mode="category"):
         print("    已灌入 %d 个 cookie：%s" % (n, [(c.name, c.value) for c in jar]))
         print("    注意：这一步只是证明「规则的搜索选择器是对的」，")
         print("          冷会话直接搜索一定会被站点弹验证码（见 ② 段）。")
-        print("    站点限制「搜索 6 秒一次」，先等 8 秒避免撞限流…")
-        time.sleep(8)
-        books = R.do_search(rule, "三体")
+        print("    站点限制「搜索 6 秒一次」，先等 10 秒避免撞限流…")
+        time.sleep(10)
+        # do_search 必须放在最前面：诊断本身也是一次搜索，会吃掉限流额度
+        books = retry(lambda: R.do_search(rule, "三体"), tries=2, delay=10, label="do_search")
         print()
         print("[① 搜索] do_search(三体) → %d 条" % len(books))
+        if not books:
+            su = R.fill(rule["search"]["url"], rule["host"], kw="三体", page=1)
+            time.sleep(10)
+            diag = retry(lambda: R.fetch(su, referer=BASE, desktop=False), label="诊断搜索")
+            print("    [诊断] %s" % su)
+            print("    [诊断] %d 字节  title=%s  验证码页=%s  限流页=%s  结果=%d"
+                  % (len(diag), title_of(diag), "系统安全验证" in diag,
+                     "搜索限制" in diag or "提示信息" in diag,
+                     len(re.findall(r'href="(/books/\d+\.html)"', diag))))
+            print("    （0 条要么是被「搜索 6 秒一次」限流成「提示信息」页，要么是会话过期又弹验证码；"
+                  "隔 30 秒再跑一次本命令）")
         engine_chain(rule, books, "搜索结果")
         return
 
@@ -673,7 +706,7 @@ def probe_engine(mode="category"):
     cat_url = menus[0][2]
     print()
     print("[① 分类第一页] %s" % cat_url)
-    html = R.fetch(cat_url, referer=BASE, desktop=False)
+    html = retry(lambda: R.fetch(cat_url, referer=BASE, desktop=False), label="分类页")
     lr = rule.get("search") or {}
     books = R.parse_list(html, {"list": lr.get("list"),
                                 "title": lr.get("title"),
@@ -682,6 +715,53 @@ def probe_engine(mode="category"):
                                 "author": lr.get("author"),
                                 "artist": lr.get("artist")}, rule)
     engine_chain(rule, books, "分类第一页")
+
+
+# --------------------------------------------------------------------------
+# ④ 搜索链路证明：提交验证码那一次 POST 本身就是一次真实搜索
+#    （它的响应就是搜索结果页），所以直接拿这个响应体喂给交付规则的 search 选择器，
+#     再往下走 章节 → 音频 → 试听。全程只花一次「搜索额度」，不被 6 秒限流干扰。
+#    用法：probe_ting22.py search-proof <答案>
+# --------------------------------------------------------------------------
+
+def probe_search_proof(answer, kw="三体"):
+    head("④ 搜索链路证明：POST 过验证码（= 一次真实搜索）→ 交付规则解析 → 章节 → 音频")
+
+    rule = load_rule()
+    if not answer:
+        print("    需要答案：probe_ting22.py search-proof <答案>（先跑 captcha 取图）")
+        return
+
+    jar = http.cookiejar.LWPCookieJar(JAR_FILE)
+    if os.path.exists(JAR_FILE):
+        jar.load(ignore_discard=True, ignore_expires=True)
+    op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    print("    会话 cookie：%s" % [(c.name, c.value) for c in jar])
+
+    body = urllib.parse.urlencode({"validate": answer, "searchword": kw}).encode()
+    url = (BASE + "search.php?scheckAC=check&page=&searchtype=&order=&tid=&area="
+           "&year=&letter=&yuyan=&state=&money=&ver=&jq=")
+    req = urllib.request.Request(url, data=body)
+    req.add_header("User-Agent", UA_M)
+    req.add_header("Referer", BASE + "search.php?searchword=" + urllib.parse.quote(kw))
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with op.open(req, timeout=45) as r:
+            html = r.read().decode("utf-8", "replace")
+    except Exception as e:
+        print("    ❌ POST 失败：%s" % e)
+        return
+    print("    POST validate=%s → %d 字节  title=%s  验证码页=%s  限流页=%s"
+          % (answer, len(html), title_of(html), "系统安全验证" in html,
+             "搜索限制" in html or "提示信息" in html))
+
+    # 关键：用「交付的规则文件」里的 search 选择器解析这个真实响应
+    lr = rule["search"]
+    books = R.parse_list(html, lr, rule)
+    print("    用规则选择器 list=%r 解析 → %d 条" % (lr.get("list"), len(books)))
+    print("    （解析 0 条就说明选择器不对或者这次撞上限流/验证码）")
+
+    engine_chain(rule, books, "搜索结果")
 
 
 # --------------------------------------------------------------------------
@@ -701,8 +781,11 @@ if __name__ == "__main__":
     if which == "detail":
         probe_detail(sys.argv[2] if len(sys.argv) > 2 else None)
     if which == "captcha":
-        probe_captcha(sys.argv[2] if len(sys.argv) > 2 else None)
+        probe_captcha(sys.argv[2] if len(sys.argv) > 2 else None,
+                      quick=(len(sys.argv) > 3 and sys.argv[3] == "quick"))
     if which in ("all", "engine"):
         probe_engine("category")
     if which == "engine-search":
         probe_engine("search")
+    if which == "search-proof":
+        probe_search_proof(sys.argv[2] if len(sys.argv) > 2 else None)

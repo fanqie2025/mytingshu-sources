@@ -60,7 +60,7 @@
       "statusOK": "1",
       "retries": 3,
       "retryDelayMs": 2000,
-      "referer": "{episodeUrl}"
+      "referer": "{host}/"
     }
   }
 ]

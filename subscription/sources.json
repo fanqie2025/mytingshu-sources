@@ -519,5 +519,226 @@
       "statusField": "code",
       "statusOK": "1"
     }
+  },
+  {
+    "id": "ting29",
+    "name": "29听书网",
+    "host": "https://m.ting29.com",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": true,
+    "desc": "29听书网（安安听书网）草稿。分类导航从 /sort/ 动态抓（实测 4 组 32 个分类）；搜索与分类列表都是 JSON 接口（Content-Type 标成 text/html，只看 body）；目录在 /bookdir/{h1}/{h2}.html，走 JS Cookie 守卫（引擎自动解 pt_guid），hash 每次抓 /book/ 都会变所以必须现抓，且**每页 50 章要翻页**（文档说「一次给全部」不成立）；音频取 PC 站 www.ting29.com/player.html 的纯 HTML（m 站 /player.html 是 404），页面里 `mp3:` 是字符串拼接表达式、变量名与形态每次请求都变，所以要引擎求值而不是写死正则。音频那步请写小写 pcplayer（Swift 侧 a.type.lowercased() 不挑大小写，但 Python 复刻 tools/rule_engine.py 是 a[type] == pcplayer 的严格小写比较，写 pcPlayer 会一条分支都不匹配、直接报「取音频失败」）。注意 audio.type=pcplayer 与 search.categoryUrl 是本次要求新增的引擎能力，字段没生效就说明引擎还没实现（详见探测报告）。",
+    "search": {
+      "kind": "json",
+      "url": "{host}/api/ajax/solist?word={kw}&type=name&page={page}&order=1",
+      "categoryUrl": "{host}/api/ajax/list?sort={sort}&key={key}&tg={tg}&order={order}&page={page}",
+      "title": "novel.name",
+      "urlRule": "novel.url",
+      "cover": "novel.cover",
+      "artist": "boyin.name",
+      "intro": "novel.intro",
+      "apiVars": {
+        "sort": "__API_SORT",
+        "key": "__API_KEY",
+        "tg": "__API_TG",
+        "order": "__API_ORDER"
+      },
+      "ua": "mobile"
+    },
+    "categoriesFrom": {
+      "url": "{host}/sort/",
+      "group": "dl.pd-class",
+      "groupTitle": "dt a@text",
+      "item": "dd a[href*=\"/book/\"]",
+      "title": "@title",
+      "urlRule": "@href",
+      "ua": "mobile"
+    },
+    "detail": {
+      "ua": "mobile",
+      "dirUrl": "a.dirurl@href",
+      "dirUA": "mobile",
+      "episodes": "a[href*=\"/tingshu/\"]",
+      "episodeTitle": "@title",
+      "episodeUrl": "@href",
+      "cover": "img.book-cover@src",
+      "artist": "div.book-rand-a a[href*=\"/boyin/\"]@text",
+      "intro": "div.book-des@text"
+    },
+    "audio": {
+      "type": "pcplayer",
+      "url": "https://www.ting29.com/player.html?nid={nid}&cid={cid}&site=16",
+      "urlVars": {
+        "nid": "/tingshu/(\\d+)/\\d+\\.html",
+        "cid": "/tingshu/\\d+/(\\d+)\\.html"
+      },
+      "ua": "desktop",
+      "referer": "https://www.ting29.com/",
+      "headers": {
+        "Referer": "https://www.ting29.com/"
+      },
+      "retries": 3,
+      "retryDelayMs": 2000
+    }
+  },
+  {
+    "id": "ting22",
+    "name": "22听书",
+    "host": "https://22ting.com",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": true,
+    "desc": "一夜幻听网（22ting.com）。搜索要过一次图片验证码（算术题，已配 verification，App 会弹内置浏览器让用户过一次；站点把验证状态记在 PHPSESSID 会话里，过完本次会话内搜索就通），站点另限「搜索 6 秒一次」，超频返回「提示信息」页。分类（24 个，/html/221.html 起）、章节、播放都不需要验证码。章节页里 `var now=\"…m4a\"` 就是 xmcdn 音频直链，播放带 Referer。",
+    "search": {
+      "url": "{host}/search.php?page={page}&searchword={kw}&searchtype=",
+      "list": "ul.row-b > li",
+      "title": "h2 a.f-bold@text",
+      "urlRule": "h2 a.f-bold@href",
+      "cover": ".img-box img@src",
+      "author": "h2 span.fr@text",
+      "artist": "p.f-gray@regex(作者：\\s*(.*?)\\s*，由\\s*(.*?)\\s*播音,2)",
+      "intro": "p.f-gray@text"
+    },
+    "verification": {
+      "url": "{host}/search.php?searchword={kw}"
+    },
+    "categories": [
+      {
+        "title": "玄幻",
+        "url": "{host}/html/221.html",
+        "group": "小说"
+      },
+      {
+        "title": "言情",
+        "url": "{host}/html/222.html",
+        "group": "小说"
+      },
+      {
+        "title": "都市",
+        "url": "{host}/html/223.html",
+        "group": "小说"
+      },
+      {
+        "title": "恐怖",
+        "url": "{host}/html/224.html",
+        "group": "小说"
+      },
+      {
+        "title": "惊悚",
+        "url": "{host}/html/225.html",
+        "group": "小说"
+      },
+      {
+        "title": "推理",
+        "url": "{host}/html/226.html",
+        "group": "小说"
+      },
+      {
+        "title": "武侠",
+        "url": "{host}/html/227.html",
+        "group": "小说"
+      },
+      {
+        "title": "历史",
+        "url": "{host}/html/228.html",
+        "group": "小说"
+      },
+      {
+        "title": "军事",
+        "url": "{host}/html/229.html",
+        "group": "小说"
+      },
+      {
+        "title": "穿越",
+        "url": "{host}/html/2210.html",
+        "group": "小说"
+      },
+      {
+        "title": "科幻",
+        "url": "{host}/html/2211.html",
+        "group": "小说"
+      },
+      {
+        "title": "网游",
+        "url": "{host}/html/2212.html",
+        "group": "小说"
+      },
+      {
+        "title": "评书",
+        "url": "{host}/html/2213.html",
+        "group": "其它"
+      },
+      {
+        "title": "戏曲",
+        "url": "{host}/html/2214.html",
+        "group": "其它"
+      },
+      {
+        "title": "笑话",
+        "url": "{host}/html/2215.html",
+        "group": "其它"
+      },
+      {
+        "title": "儿童",
+        "url": "{host}/html/2216.html",
+        "group": "其它"
+      },
+      {
+        "title": "财经",
+        "url": "{host}/html/2217.html",
+        "group": "其它"
+      },
+      {
+        "title": "广播",
+        "url": "{host}/html/2218.html",
+        "group": "其它"
+      },
+      {
+        "title": "诗歌",
+        "url": "{host}/html/2219.html",
+        "group": "其它"
+      },
+      {
+        "title": "文学",
+        "url": "{host}/html/2220.html",
+        "group": "其它"
+      },
+      {
+        "title": "粤语",
+        "url": "{host}/html/2221.html",
+        "group": "其它"
+      },
+      {
+        "title": "经典",
+        "url": "{host}/html/2222.html",
+        "group": "其它"
+      },
+      {
+        "title": "相声小品",
+        "url": "{host}/html/2223.html",
+        "group": "其它"
+      },
+      {
+        "title": "百家讲坛",
+        "url": "{host}/html/2224.html",
+        "group": "其它"
+      }
+    ],
+    "detail": {
+      "episodes": "#yuedu ul.ul-36 li a",
+      "episodeTitle": "@title",
+      "episodeUrl": "@href",
+      "cover": "div.style-img.pd10 img@src",
+      "author": "div.style-img.pd10 section@regex(作者：\\s*(.*?)\\s*，由\\s*(.*?)\\s*播音,1)",
+      "artist": "div.style-img.pd10 section@regex(作者：\\s*(.*?)\\s*，由\\s*(.*?)\\s*播音,2)",
+      "intro": "div.style-img.pd10 section@regex(内容介绍：([\\s\\S]*))"
+    },
+    "audio": {
+      "type": "regex",
+      "pattern": "var\\s+now\\s*=\\s*\"([^\"]+)\"",
+      "referer": "{host}/"
+    }
   }
 ]
