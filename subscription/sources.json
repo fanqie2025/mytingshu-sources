@@ -293,5 +293,68 @@
       "referer": "{episodeUrl}",
       "retryDelayMs": 5000
     }
+  },
+  {
+    "id": "leting",
+    "name": "乐听网",
+    "host": "https://m.leting.vip",
+    "desc": "乐听网。搜索/分类走 JSON 接口；音频地址要用章节页的 salt 换（已内置双层编码）。",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": true,
+    "search": {
+      "kind": "json",
+      "url": "{host}/api/ajax/solist?word={kw}&type=name&page={page}&order=1",
+      "list": "",
+      "title": "name",
+      "node": "novel",
+      "urlRule": "url",
+      "cover": "cover",
+      "intro": "intro",
+      "headers": {
+        "X-Requested-With": "XMLHttpRequest"
+      }
+    },
+    "categoriesFrom": {
+      "url": "{host}/sort/",
+      "group": "dl.pd-class",
+      "groupTitle": "dt@text",
+      "item": "dd a",
+      "title": "@text",
+      "urlRule": "@href"
+    },
+    "detail": {
+      "ua": "mobile",
+      "dirUrl": "a[href*=\"bookdir\"]@href",
+      "dirUA": "mobile",
+      "episodes": "#playlist li a",
+      "episodeTitle": "@title",
+      "episodeUrl": "@href"
+    },
+    "audio": {
+      "type": "post",
+      "ua": "mobile",
+      "contentType": "json",
+      "url": "{host}/api/act/readplay",
+      "body": "{\"encodedData\":\"{enc}\"}",
+      "metaFrom": {
+        "nid": "_b",
+        "cid": "_p",
+        "sc": "_c"
+      },
+      "headers": {
+        "Origin": "{host}"
+      },
+      "sign": {
+        "kind": "base64Quote",
+        "input": "{\"novelid\":\"{nid}\",\"chapterid\":\"{cid}\",\"type\":1,\"salt\":\"{sc}\"}",
+        "var": "enc"
+      },
+      "field": "audioUrl",
+      "retries": 3,
+      "retryDelayMs": 3000,
+      "referer": "{episodeUrl}"
+    }
   }
 ]

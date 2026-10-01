@@ -205,6 +205,27 @@ def value_at(path, obj):
 
 # ---------- 引擎 ----------
 
+def do_menus(rule):
+    """动态分类导航：从分类大全页按分组抓出来"""
+    cf = rule.get("categoriesFrom")
+    if not cf:
+        return [(c.get("group") or "分类", c["title"], fill(c["url"], rule["host"]))
+                for c in (rule.get("categories") or [])]
+    host = rule["host"]
+    desktop = (cf.get("ua") or rule.get("ua") or "mobile").lower() == "desktop"
+    html = fetch(fill(cf["url"], host), referer=host + "/", desktop=desktop)
+    soup = BeautifulSoup(html, "lxml")
+    out = []
+    for g in soup.select(cf["group"]):
+        gname = extract(cf.get("groupTitle") or "dt@text", [g]) or "分类"
+        for a in g.select(cf["item"]):
+            t = extract(cf.get("title") or "@text", [a])
+            u = extract(cf.get("urlRule") or "@href", [a])
+            if t and u:
+                out.append((gname, t, absolute(u, host)))
+    return out
+
+
 def do_search(rule, kw, page=1):
     lr = rule.get("search")
     if not lr:
@@ -222,8 +243,71 @@ def do_search(rule, kw, page=1):
     return parse_list(html, lr, rule)
 
 
+def _any_at(path, obj):
+    cur = obj
+    for part in path.split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part)
+        elif isinstance(cur, list) and part.isdigit() and int(part) < len(cur):
+            cur = cur[int(part)]
+        else:
+            return None
+    return cur
+
+
+def parse_json_list(text, lr, host):
+    """JSON 接口模式：字段写点号路径；一条规则兼容 {data:[...]} 与 [{novel:{...}}] 两种形态"""
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return []
+    arr = []
+    if lr.get("items"):
+        got = _any_at(lr["items"], obj)
+        arr = got if isinstance(got, list) else []
+    elif isinstance(obj, list):
+        arr = obj
+    elif isinstance(obj, dict):
+        for key in ("data", "results", "list", "items"):
+            if isinstance(obj.get(key), list):
+                arr = obj[key]
+                break
+
+    def pick(paths, node):
+        for p in paths:
+            if not p:
+                continue
+            v = _any_at(p, node)
+            if v is not None and str(v):
+                return str(v)
+        return ""
+
+    books = []
+    for item in arr:
+        node = item
+        if lr.get("node"):
+            sub = _any_at(lr["node"], item)
+            if sub is not None:
+                node = sub
+        title = pick([lr.get("title"), "title", "name"], node)
+        url = pick([lr.get("urlRule"), "url", "bookurl"], node)
+        if not title or not url:
+            continue
+        books.append({
+            "title": title,
+            "url": absolute(url, host),
+            "cover": absolute(pick([lr.get("cover"), "cover", "pic", "img", "image"], node), host),
+            "artist": pick([lr.get("artist"), "boyin", "artist", "narrator"], node),
+            "author": pick([lr.get("author"), "author"], node),
+            "intro": pick([lr.get("intro"), "content", "intro", "description"], node),
+        })
+    return books
+
+
 def parse_list(html, lr, rule):
     host = rule["host"]
+    if (lr.get("kind") or "html").lower() == "json":
+        return parse_json_list(html, lr, host)
     soup = BeautifulSoup(html, "lxml")
     nodes = soup.select(lr["list"])
     books = []
@@ -300,6 +384,46 @@ def do_detail(rule, book):
     return out
 
 
+def media_expr_url(html):
+    """求值 PC 播放页里 `mp3:` 的字符串拼接表达式（29听书网）—— 与 Swift 侧同算法"""
+    assign = r"(?:var\s+)?([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*['\"]([^'\"]*)['\"]"
+    variables = dict(re.findall(assign, html))
+    m = re.search(r"\bmp3\s*:\s*([^\n\r]+)", html)
+    if m:
+        expr = m.group(1).split(",")[0]
+        parts, buf, quote = [], "", None
+        for ch in expr:
+            if quote:
+                if ch == quote:
+                    quote = None
+                buf += ch
+            elif ch in "'\"":
+                quote = ch
+                buf += ch
+            elif ch == "+":
+                parts.append(buf)
+                buf = ""
+            else:
+                buf += ch
+        parts.append(buf)
+        out, ok = "", True
+        for p in parts:
+            t = p.strip()
+            if not t:
+                continue
+            if t[0] in "'\"":
+                out += t[1:-1] if len(t) >= 2 else ""
+            elif t in variables:
+                out += variables[t]
+            else:
+                ok = False
+                break
+        if ok and out.startswith("http"):
+            return out
+    m2 = re.search(r"(https?://[^'\"\s<>]+\.(?:mp3|m4a|aac))", html)
+    return m2.group(1) if m2 else ""
+
+
 def make_sign(sg, text):
     kind = sg["kind"]
     if kind == "ptcmsSp":
@@ -339,6 +463,14 @@ def do_audio(rule, ep):
                 html = fetch(ep["url"], referer=referer, desktop=desktop)
                 m = re.search(a["pattern"], html)
                 return (m.group(1) if m else "").replace("\\/", "/"), {"Referer": referer}
+            if a["type"] == "pcplayer":
+                variables = {}
+                for k, pat in (a.get("urlVars") or {}).items():
+                    mm = re.search(pat, ep["url"])
+                    variables[k] = mm.group(1) if mm else ""
+                page_url = fill_text(a.get("url", ep["url"]), host, extra=variables)
+                html = fetch(page_url, referer=referer, desktop=True)
+                return media_expr_url(html), {"Referer": referer}
             if a["type"] == "post":
                 page = fetch(ep["url"], referer=host + "/", desktop=desktop)
                 variables = {}
@@ -364,7 +496,13 @@ def do_audio(rule, ep):
                     for k, v in variables.items():
                         text = text.replace("{%s}" % k, v)
                     sig = make_sign(sg, text)
-                    if sg.get("header"):
+                    if sg.get("var"):
+                        # 放进变量，重新渲染一次 body（乐听：{"encodedData":"{enc}"}）
+                        variables[sg["var"]] = sig
+                        body = a.get("body", "")
+                        for k, v in variables.items():
+                            body = body.replace("{%s}" % k, v)
+                    elif sg.get("header"):
                         headers[sg["header"]] = sig
                     else:
                         body += ("&" if body else "") + "%s=%s" % (sg.get("param", "sp"), sig)
@@ -374,8 +512,17 @@ def do_audio(rule, ep):
                 api = fill(a.get("url", ep["url"]), host)
                 for k, v in variables.items():
                     api = api.replace("{%s}" % k, v)
-                resp = fetch(api, method="post", body=body, headers=headers,
-                             referer=referer, desktop=desktop)
+                if (a.get("contentType") or "form").lower() == "json":
+                    req = urllib.request.Request(api, data=body.encode())
+                    for k, v in headers.items():
+                        req.add_header(k, v)
+                    req.add_header("Content-Type", "application/json; charset=utf-8")
+                    req.add_header("User-Agent", UA_D if desktop else UA_M)
+                    with OPENER.open(req, timeout=45) as r:
+                        resp = r.read().decode("utf-8", "replace")
+                else:
+                    resp = fetch(api, method="post", body=body, headers=headers,
+                                 referer=referer, desktop=desktop)
                 if a.get("statusField"):
                     st = value_at(a["statusField"], json.loads(resp or "{}"))
                     if a.get("statusOK") and st != a["statusOK"]:

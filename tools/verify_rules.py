@@ -4,8 +4,12 @@
 用法：python3 tools/verify_rules.py subscription/sources.json [关键词] [源id...]
 """
 import json
+import os
 import sys
 import urllib.request
+
+# 让脚本在任何目录下都能 import 到 rule_engine
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import rule_engine as R
 
