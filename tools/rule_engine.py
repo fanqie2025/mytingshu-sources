@@ -8,6 +8,7 @@
 用法：python3 tools/rule_engine.py subscription/sources.json [关键词]
 """
 import base64
+import html as html_mod
 import http.cookiejar
 import json
 import random
@@ -99,12 +100,86 @@ def fetch(url, method="get", body=None, headers=None, referer=None, desktop=Fals
     return text
 
 
+def normalize_literal(text):
+    """把单引号 JS/Python 对象字面量归一化成 JSON（酷我接口就是这种）"""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "'\"":
+            quote = ch
+            i += 1
+            buf = []
+            while i < n:
+                c = text[i]
+                if c == "\\" and i + 1 < n:
+                    buf.append(text[i:i + 2])
+                    i += 2
+                    continue
+                if c == quote:
+                    i += 1
+                    break
+                buf.append(c)
+                i += 1
+            s = "".join(buf)
+            # 单引号里的双引号要转义
+            s = s.replace('\\"', '"').replace('"', '\\"')
+            out.append('"' + s + '"')
+            continue
+        if ch.isalpha() or ch == "_":
+            j = i
+            while j < n and (text[j].isalnum() or text[j] in "_$"):
+                j += 1
+            word = text[i:j]
+            k = j
+            while k < n and text[k] in " \t\r\n":
+                k += 1
+            if k < n and text[k] == ":":
+                out.append('"' + word + '"')
+            elif word in ("null", "true", "false"):
+                out.append(word)
+            else:
+                out.append(word)
+            i = j
+            continue
+        if ch in "[{":
+            i += 1
+            out.append(ch)
+            # 去掉「[ ,」/「{ ,」这类尾逗号
+            k = i
+            while k < n and text[k] in " \t\r\n":
+                k += 1
+            if k < n and text[k] == ",":
+                out.append(text[i:k])
+                i = k + 1
+                continue
+            continue
+        out.append(ch)
+        i += 1
+    s = "".join(out)
+    s = re.sub(r",(\s*[\]}])", r"\1", s)   # 尾逗号
+    return s
+
+
+def load_literal(text):
+    """字面量 → Python 对象：先归一化再 json.loads，失败退回 ast.literal_eval"""
+    try:
+        return json.loads(normalize_literal(text))
+    except Exception:
+        pass
+    try:
+        import ast
+        return ast.literal_eval(text)
+    except Exception:
+        return None
+
+
 def fill(tpl, host, kw=None, page=None, extra=None):
     s = tpl.replace("{host}", host)
     if kw is not None:
         s = s.replace("{kw}", urllib.parse.quote(kw, safe=""))
     if page is not None:
-        s = s.replace("{page}", str(page))
+        s = s.replace("{page}", str(page)).replace("{page0}", str(max(0, page - 1)))
     for k, v in (extra or {}).items():
         s = s.replace("{%s}" % k, v)
     if s.startswith("http"):
@@ -120,7 +195,7 @@ def fill_text(tpl, host, kw=None, page=None, extra=None):
     if kw is not None:
         s = s.replace("{kw}", urllib.parse.quote(kw, safe=""))
     if page is not None:
-        s = s.replace("{page}", str(page))
+        s = s.replace("{page}", str(page)).replace("{page0}", str(max(0, page - 1)))
     for k, v in (extra or {}).items():
         s = s.replace("{%s}" % k, v)
     return s
@@ -255,23 +330,32 @@ def _any_at(path, obj):
     return cur
 
 
-def parse_json_list(text, lr, host):
-    """JSON 接口模式：字段写点号路径；一条规则兼容 {data:[...]} 与 [{novel:{...}}] 两种形态"""
-    try:
-        obj = json.loads(text)
-    except Exception:
-        return []
-    arr = []
-    if lr.get("items"):
+def clean_text(s):
+    """文本字段统一清洗：去标签 + 实体 + 再解一层 \\uXXXX（酷我 ft=music 的 ARTIST 是 \\u0026）"""
+    if not s:
+        return ""
+    s = re.sub(r"<[^>]+>", "", str(s))
+    s = html_mod.unescape(s)
+    s = s.replace("\\u0026", "&").replace("\\u002F", "/").replace("\\/", "/")
+    s = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), s)
+    s = s.replace(chr(92) + '&', '&')
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def parse_json_list_obj(obj, lr, host):
+    if isinstance(lr.get("items"), str) and lr["items"]:
         got = _any_at(lr["items"], obj)
         arr = got if isinstance(got, list) else []
     elif isinstance(obj, list):
         arr = obj
     elif isinstance(obj, dict):
+        arr = []
         for key in ("data", "results", "list", "items"):
             if isinstance(obj.get(key), list):
                 arr = obj[key]
                 break
+    else:
+        arr = []
 
     def pick(paths, node):
         for p in paths:
@@ -282,32 +366,60 @@ def parse_json_list(text, lr, host):
                 return str(v)
         return ""
 
-    books = []
+    books, seen = [], set()
     for item in arr:
         node = item
         if lr.get("node"):
             sub = _any_at(lr["node"], item)
             if sub is not None:
                 node = sub
-        title = pick([lr.get("title"), "title", "name"], node)
+        title = clean_text(pick([lr.get("title"), "title", "name"], node))
         url = pick([lr.get("urlRule"), "url", "bookurl"], node)
         if not title or not url:
             continue
+        cover = pick([lr.get("cover"), "cover", "pic", "img", "image"], node)
+        if cover and lr.get("prefix"):          # 相对封面要在拼绝对地址之前加前缀
+            cover = lr["prefix"] + cover
+        full = absolute(url, host)
+        if lr.get("dedupe"):
+            if full in seen:
+                continue
+            seen.add(full)
         books.append({
             "title": title,
-            "url": absolute(url, host),
-            "cover": absolute(pick([lr.get("cover"), "cover", "pic", "img", "image"], node), host),
-            "artist": pick([lr.get("artist"), "boyin", "artist", "narrator"], node),
-            "author": pick([lr.get("author"), "author"], node),
-            "intro": pick([lr.get("intro"), "content", "intro", "description"], node),
+            "url": full,
+            "cover": absolute(cover, host),
+            "artist": clean_text(pick([lr.get("artist"), "boyin", "artist", "narrator"], node)),
+            "author": clean_text(pick([lr.get("author"), "author"], node)),
+            "intro": clean_text(pick([lr.get("intro"), "content", "intro", "description"], node)),
         })
     return books
 
 
+def parse_json_list(text, lr, host):
+    """标准 JSON 模式"""
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return []
+    return parse_json_list_obj(obj, lr, host)
+
+
+def parse_literal_list(text, lr, host):
+    """单引号 JS/Python 字面量模式（酷我 rformat=json 名不副实）"""
+    obj = load_literal(text)
+    if obj is None:
+        return []
+    return parse_json_list_obj(obj, lr, host)
+
+
 def parse_list(html, lr, rule):
     host = rule["host"]
-    if (lr.get("kind") or "html").lower() == "json":
+    kind = (lr.get("kind") or "html").lower()
+    if kind == "json":
         return parse_json_list(html, lr, host)
+    if kind == "literal":
+        return parse_literal_list(html, lr, host)
     soup = BeautifulSoup(html, "lxml")
     nodes = soup.select(lr["list"])
     books = []
@@ -335,9 +447,42 @@ def do_detail(rule, book):
     if not d:
         return []
     host = rule["host"]
+    kind = (d.get("kind") or "html").lower()
     enc = d.get("encoding") or rule.get("encoding") or "utf-8"
     desktop = (d.get("ua") or rule.get("ua") or "mobile").lower() == "desktop"
-    html = fetch(book["url"], referer=host + "/", desktop=desktop, encoding=enc)
+
+    # 详情接口地址：可由 bookURL 正则取变量后拼出来（酷我 bookURL 只带 albumid）
+    detail_url = book["url"]
+    if d.get("url"):
+        vars_ = {}
+        for k, pat in (d.get("urlVars") or {}).items():
+            m = re.search(pat, book["url"])
+            vars_[k] = m.group(1) if m else ""
+        detail_url = fill_text(d["url"], host, extra=vars_)
+        if not detail_url.startswith("http"):
+            detail_url = fill(d["url"], host, extra=vars_)
+
+    html = fetch(detail_url, referer=host + "/", desktop=desktop, encoding=enc)
+
+    if kind in ("json", "literal"):
+        obj = json.loads(html) if kind == "json" else load_literal(html)
+        if not isinstance(obj, (dict, list)):
+            raise RuntimeError("详情响应不是 %s 结构" % kind)
+        arr = _any_at(d["episodes"], obj) or []
+        episodes = []
+        for it in arr:
+            t = clean_text(_any_at(d.get("episodeTitle") or "name", it) or "")
+            u = str(_any_at(d.get("episodeUrl") or "url", it) or "")
+            if u:
+                episodes.append({"title": t, "url": u})
+        if d.get("cover"):
+            book["cover"] = str(_any_at(d["cover"], obj) or "") or book.get("cover", "")
+        if d.get("artist"):
+            book["artist"] = clean_text(_any_at(d["artist"], obj) or "")
+        if d.get("intro"):
+            book["intro"] = clean_text(_any_at(d["intro"], obj) or "")
+        return episodes
+
     soup = BeautifulSoup(html, "lxml")
 
     if d.get("dirUrl"):
@@ -463,6 +608,40 @@ def do_audio(rule, ep):
                 html = fetch(ep["url"], referer=referer, desktop=desktop)
                 m = re.search(a["pattern"], html)
                 return (m.group(1) if m else "").replace("\\/", "/"), {"Referer": referer}
+            if a["type"] == "api":
+                # 通用版：从章节地址正则取变量 → 拼接口地址 → GET → 点号路径取值 → 退正则
+                variables = {}
+                for k, pat in (a.get("urlVars") or {}).items():
+                    mm = re.search(pat, ep["url"])
+                    variables[k] = mm.group(1) if mm else ""
+                api = fill_text(a.get("url", ep["url"]), host, extra=variables)
+                if not api.startswith("http"):
+                    api = fill(a.get("url", ep["url"]), host, extra=variables)
+                text = fetch(api, referer=referer, desktop=desktop, headers=a.get("headers"))
+                raw = ""
+                if a.get("field"):
+                    try:
+                        raw = value_at(a["field"], json.loads(text))
+                    except Exception:
+                        obj = load_literal(text)
+                        if isinstance(obj, (dict, list)):
+                            raw = value_at(a["field"], obj)
+                if not raw and a.get("fieldAlt"):
+                    try:
+                        raw = value_at(a["fieldAlt"], json.loads(text))
+                    except Exception:
+                        pass
+                if not raw and a.get("pattern"):
+                    m = re.search(a["pattern"], text)
+                    raw = m.group(1) if m else ""
+                if not raw:
+                    last = "api 没取到地址"
+                    continue
+                final = absolute(raw, host)
+                for pair in (a.get("replace") or []):
+                    if len(pair) >= 2:
+                        final = final.replace(pair[0], pair[1])
+                return final, {"Referer": referer}
             if a["type"] == "pcplayer":
                 variables = {}
                 for k, pat in (a.get("urlVars") or {}).items():
@@ -546,4 +725,6 @@ def do_audio(rule, ep):
         except Exception as e:
             last = str(e)
     raise RuntimeError(last or "取音频失败")
+
+
 

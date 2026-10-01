@@ -1,0 +1,66 @@
+[
+  {
+    "id": "ting55",
+    "name": "恋听网",
+    "host": "https://m.ting55.com",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": true,
+    "desc": "恋听网（m.ting55.com，全站 UTF-8）。搜索是路径段 /search/{kw}；音频地址不在 HTML 里，须 POST /glink 用章节页 <meta _c> 当 xt 令牌换取（优先 ourl，为空再用 url）；/glink 按 mhting55 cookie 计数频控，本源每次带随机 cookie。",
+    "search": {
+      "url": "{host}/search/{kw}",
+      "list": "a[href*=\"/book/\"]",
+      "title": "dl dd h3@text",
+      "urlRule": "@href",
+      "cover": "dt img@src",
+      "author": "dl dd@regex(作者：\\s*([^<>]{1,20}?)(?=\\s*(?:播音|状态|时间|类型|完结|连载|$)))",
+      "artist": "dl dd@regex(播音：\\s*([^<>]{1,20}?)(?=\\s*(?:状态|作者|时间|类型|完结|连载|$)))"
+    },
+    "categoriesFrom": {
+      "url": "{host}/",
+      "group": "nav",
+      "item": "a[href*=\"/category/\"]",
+      "title": "@text",
+      "urlRule": "@href"
+    },
+    "detail": {
+      "episodes": "div.plist a",
+      "episodeTitle": "@text",
+      "episodeUrl": "@href",
+      "cover": "div.bimg img@src",
+      "author": "div.binfo@regex(作者：\\s*([^<>]{1,20}?)(?=\\s*(?:播音|状态|时间|类型|完结|连载|$)))",
+      "artist": "div.binfo@regex(播音：\\s*([^<>]{1,20}?)(?=\\s*(?:状态|作者|时间|类型|完结|连载|$)))",
+      "intro": "div.intro p@text"
+    },
+    "audio": {
+      "type": "post",
+      "ua": "mobile",
+      "url": "{host}/glink",
+      "body": "bookId={bookId}&isPay={isPay}&page={page}",
+      "metaFrom": {
+        "bookId": "_b",
+        "isPay": "_h",
+        "page": "_cp",
+        "xt": "_c"
+      },
+      "metaDefaults": {
+        "isPay": "0",
+        "page": "1"
+      },
+      "headers": {
+        "xt": "{xt}"
+      },
+      "cookies": {
+        "mhting55": "randHex16"
+      },
+      "field": "ourl",
+      "fieldAlt": "url",
+      "statusField": "status",
+      "statusOK": "1",
+      "retries": 3,
+      "retryDelayMs": 2000,
+      "referer": "{episodeUrl}"
+    }
+  }
+]

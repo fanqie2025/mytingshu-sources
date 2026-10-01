@@ -1,0 +1,49 @@
+[
+  {
+    "id": "kuwo",
+    "name": "酷我畅听",
+    "host": "http://kuwo.cn",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": false,
+    "desc": "酷我畅听（酷我音乐·畅听）。接口既不是 HTML 也不是标准 JSON，而是单引号 JS/Python 对象字面量，需要引擎的 kind:\"literal\" 文本列表模式。搜索走 ft=music 歌曲接口（对有声书/评书命中最好，实测 ft=album 会把音乐专辑当书返回）再按专辑去重；目录走 stype=albuminfo 的 musiclist；音频走 antiserver 换链后用 field:\"url\" 取 JSON 里的直链。免费曲目（tpay=0）完整播放，tpay≠0 的付费内容只有约 30 秒试听。全程 http、无 token、无签名、无 csrf、无 Cookie 守卫。",
+    "search": {
+      "kind": "literal",
+      "url": "http://search.kuwo.cn/r.s?all={kw}&ft=music&itemset=web_2013&client=kt&pn={page0}&rn=20&rformat=json&encoding=utf8",
+      "items": "abslist",
+      "title": "ALBUM",
+      "urlRule": "ALBUMID",
+      "cover": "web_albumpic_short",
+      "prefix": "https://img4.kuwo.cn/star/albumcover/",
+      "artist": "ARTIST",
+      "intro": "NAME",
+      "dedupe": true
+    },
+    "detail": {
+      "kind": "literal",
+      "urlVars": {
+        "albumid": "([0-9]+)$"
+      },
+      "url": "http://search.kuwo.cn/r.s?stype=albuminfo&albumid={albumid}&rformat=json&encoding=utf8&rn=200&pn=0",
+      "episodes": "musiclist",
+      "episodeTitle": "name",
+      "episodeUrl": "musicrid",
+      "cover": "img",
+      "artist": "artist",
+      "intro": "info"
+    },
+    "audio": {
+      "type": "api",
+      "urlVars": {
+        "rid": "([0-9]+)$"
+      },
+      "url": "http://antiserver.kuwo.cn/anti.s?type=convert_url3&rid={rid}&format=mp3&response=url",
+      "field": "url",
+      "pattern": "\"url\"\\s*:\\s*\"([^\"]+)\"",
+      "referer": "http://www.kuwo.cn/",
+      "retries": 3,
+      "retryDelayMs": 1500
+    }
+  }
+]
