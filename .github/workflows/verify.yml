@@ -17,6 +17,24 @@ jobs:
       - name: 校验订阅文件（阻塞）
         run: python3 tools/verify_subscription.py subscription/sources.json
 
+  # 按 iOS App 的 Codable schema 再验一遍（阻塞）。
+  # 为什么单列一项：Python 复刻引擎的宽松度和 Swift 的 JSONDecoder 不同 ——
+  # 曾发生「10 个源 Python 全绿，但 App 里整份订阅导入失败」（ListRule.list 被声明成必填，
+  # 3 个 JSON 模式的源没写它，整体 decode 一抛错，一个源都进不去）。
+  # schema 从 App 仓库的 Sources/RuleSource.swift 现场解析，不手抄、不会漂移。
+  ios_schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4                     # 书源仓库（本仓库）
+      - uses: actions/checkout@v4                     # App 仓库：schema 的真源
+        with:
+          repository: fanqie2025/mytingshu-ios
+          path: .ios
+      - name: 按 iOS schema 校验（阻塞）
+        run: |
+          python3 .ios/tools/audit_subscription.py subscription/sources.json \
+            --swift .ios/Sources/RuleSource.swift
+
   live:
     runs-on: ubuntu-latest
     continue-on-error: true
