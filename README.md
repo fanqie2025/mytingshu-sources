@@ -32,20 +32,38 @@ https://raw.githubusercontent.com/fanqie2025/mytingshu-sources/main/subscription
 
 ## 源清单
 
-| 源 | 安卓 | iOS | 形态 |
-| --- | --- | --- | --- |
-| 22听书（22ting.com） | ✅ `Ting22.kt` | ✅ `native-sources/Sources.swift` → `Ting22Source` | 搜索要过图片验证码 + 6 秒限流 |
-| 书音FM | — | ✅ `MekuiSource` | MD5 签名 |
-| 酷我畅听 | — | ✅ `KuwoSource` | 专辑接口 |
-| 爱听书 / 13听书网 | — | ✅ `PtcmsSource` | 两步取目录 + `sp` 签名 + 51.LA 守卫（要写 `__51guid__` 与 `__51refresh__guid` **两个** cookie） |
-| 乐听网 | — | ✅ `LetingSource` | `pt_guid` 守卫 + AJAX 分类 + `readplay` 双层编码换地址 |
-| 恋听网 | — | ✅ `Ting55Source` | `POST /glink` 换地址 + 随机 `mhting55` cookie 规避频控 |
-| 29听书网 | — | ✅ `Ting29Source` | JSON 分类 + 守卫 + PC `/player.html` 的 `mp3:` 表达式求值 |
-| 有听网 / 275听书 / 单田芳评书网 | — | ✅ `subscription/sources.json` | **JSON 规则，订阅导入即用** |
-| Audiobookshelf | — | ✅（App 内置连接器，非抓站源） | 连你自己的服务器 |
+| 源 | 状态 | 形态 |
+| --- | --- | --- |
+| **有听网 / 275听书 / 单田芳评书网 / 爱听书 / 13听书网** | ✅ 已迁移为 **JSON 规则**（在 `subscription/sources.json`，导入即用） | 规则引擎 v2 |
+| 乐听网 / 恋听网 / 29听书网 / 22听书 / 书音FM / 酷我畅听 | ⏳ 待迁移（源码在 `native-sources/`） | 规则引擎 v2（按需继续补能力） |
+| Audiobookshelf | ✅ App 内置连接器 | 非抓站源 |
 
-> 上表里 `native-sources/` 的 8 个原生源目前**已从 App 移除**（App 改成了外壳）。
-> 要用它们得二选一：**(A)** 重新编译进 App；**(B)** 扩展规则引擎，把它们改写成 `subscription/` 里的 JSON 规则。
+### 规则引擎 v2 已支持（`subscription/sources.json` 用的字段）
+
+| 能力 | 字段 |
+| --- | --- |
+| POST 搜索 | `search.method` / `search.body`（表单**不补 host**） |
+| 每步 UA | `ua` / `search.ua` / `detail.ua` / `detail.dirUA` / `audio.ua` |
+| 两步取目录 | `detail.dirUrl`（先取目录入口）+ `detail.episodes` + `detail.pages.{url,max}` |
+| 自动解 JS 守卫 | 全站默认（「反转 + base64」型 `pt_guid` / `__51guid__` 等全部 cookie 都写） |
+| 音频签名 | `audio.sign.{kind,input,alphabet,header,param}`，已实现 `ptcmsSp` / `md5` / `base64Quote` |
+| 限流重试 | `audio.retries` + `audio.retryDelayMs`（突发限流要隔几秒换新签名） |
+| 状态校验 | `audio.statusField` + `audio.statusOK`（HTTP 200 但 status≠200 时重试） |
+| 地址改写 | `audio.replace`（如 https 证书过期换回 http） |
+| 随机 cookie | `audio.cookies`（值写 `randHex16`） |
+| 取祖先节点 | 取值规则前缀 `^li img@src`（封面常与条目容器不同层） |
+| JSON 字段回退 | `audio.field` + `audio.fieldAlt` |
+
+### 校验
+
+```bash
+python3 tools/verify_rules.py subscription/sources.json 三体        # 订阅里全部规则
+python3 tools/verify_rules.py subscription/sources.json 三体 itingshu  # 只测某个
+python3 tools/live_tests/itingshu_verify.py                        # 站点原生链路（对照用）
+```
+
+`tools/rule_engine.py` 是**规则引擎的 Python 复刻**（语义与 App 里的 Swift 实现一致），
+所以规则能不能用，在这里就能先验证，不用等装到手机上。
 
 ## 本机跑校验
 

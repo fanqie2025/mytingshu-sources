@@ -17,16 +17,56 @@
       "artist": ".info@regex(播音：([^<]*))"
     },
     "categories": [
-      { "title": "武侠玄幻", "url": "{host}/wuxiaxuanhuan/", "group": "有声小说" },
-      { "title": "恐怖灵异", "url": "{host}/kongbulingyi/", "group": "有声小说" },
-      { "title": "推理悬疑", "url": "{host}/tuilixuanyi/", "group": "有声小说" },
-      { "title": "都市言情", "url": "{host}/dushiyanqing/", "group": "有声小说" },
-      { "title": "家庭伦理", "url": "{host}/jiatinglunli/", "group": "有声小说" },
-      { "title": "官场职场", "url": "{host}/wenxuemingzhu/", "group": "有声小说" },
-      { "title": "经典评书", "url": "{host}/jingdianpingshu/", "group": "评书曲艺" },
-      { "title": "曲艺戏曲", "url": "{host}/quyixiqu/", "group": "评书曲艺" },
-      { "title": "相声小品", "url": "{host}/xiangshengxiaopin/", "group": "评书曲艺" },
-      { "title": "助眠音频", "url": "{host}/yinyue/", "group": "其它" }
+      {
+        "title": "武侠玄幻",
+        "url": "{host}/wuxiaxuanhuan/",
+        "group": "有声小说"
+      },
+      {
+        "title": "恐怖灵异",
+        "url": "{host}/kongbulingyi/",
+        "group": "有声小说"
+      },
+      {
+        "title": "推理悬疑",
+        "url": "{host}/tuilixuanyi/",
+        "group": "有声小说"
+      },
+      {
+        "title": "都市言情",
+        "url": "{host}/dushiyanqing/",
+        "group": "有声小说"
+      },
+      {
+        "title": "家庭伦理",
+        "url": "{host}/jiatinglunli/",
+        "group": "有声小说"
+      },
+      {
+        "title": "官场职场",
+        "url": "{host}/wenxuemingzhu/",
+        "group": "有声小说"
+      },
+      {
+        "title": "经典评书",
+        "url": "{host}/jingdianpingshu/",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "曲艺戏曲",
+        "url": "{host}/quyixiqu/",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "相声小品",
+        "url": "{host}/xiangshengxiaopin/",
+        "group": "评书曲艺"
+      },
+      {
+        "title": "助眠音频",
+        "url": "{host}/yinyue/",
+        "group": "其它"
+      }
     ],
     "detail": {
       "episodes": ".playlist .plist ul > li > a",
@@ -40,7 +80,11 @@
     "audio": {
       "type": "post",
       "url": "{host}/?s=api-getneoplay",
-      "metaFrom": { "bookId": "_b", "isPay": "_p", "page": "_cp" },
+      "metaFrom": {
+        "bookId": "_b",
+        "isPay": "_p",
+        "page": "_cp"
+      },
       "body": "bookId={bookId}&isPay={isPay}&page={page}",
       "field": "url",
       "referer": "{host}/"
@@ -87,9 +131,21 @@
       "cover": "img@src"
     },
     "categories": [
-      { "title": "评书", "url": "{host}/pbook/", "group": "评书" },
-      { "title": "有声书", "url": "{host}/ykc/", "group": "评书" },
-      { "title": "朗读", "url": "{host}/llr/", "group": "评书" }
+      {
+        "title": "评书",
+        "url": "{host}/pbook/",
+        "group": "评书"
+      },
+      {
+        "title": "有声书",
+        "url": "{host}/ykc/",
+        "group": "评书"
+      },
+      {
+        "title": "朗读",
+        "url": "{host}/llr/",
+        "group": "评书"
+      }
     ],
     "detail": {
       "episodes": "div.book-list > ul > li > a",
@@ -102,6 +158,140 @@
     "audio": {
       "type": "regex",
       "pattern": "<source[^>]+src=\"([^\"]+)\""
+    }
+  },
+  {
+    "id": "itingshu",
+    "name": "爱听书",
+    "host": "https://www.itingshu.net",
+    "desc": "爱听书（六千多本）。搜索是 POST 表单；目录要跳 /itingshus/ 且用桌面 UA；音频是签名接口（sc/sp 请求头），被限流会自动换新签名重试。（音频接口有突发限流，会隔 5 秒换新签名重试最多 5 次）",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": false,
+    "search": {
+      "method": "post",
+      "url": "{host}/novelsearch/search/result.html",
+      "body": "searchword={kw}",
+      "ua": "mobile",
+      "list": "dl.list-works-dl",
+      "title": "dt.list-book-dt > a@text",
+      "urlRule": "dt.list-book-dt > a@href",
+      "cover": "^li img@src",
+      "author": "span.book-author a@text",
+      "artist": "span.book-boyin a@text",
+      "intro": "dd.list-book-des@text"
+    },
+    "detail": {
+      "ua": "mobile",
+      "dirUrl": "a.dirurl@href",
+      "dirUA": "desktop",
+      "episodes": "a[href*=\"/play/\"]",
+      "episodeTitle": "@text",
+      "episodeUrl": "@href"
+    },
+    "audio": {
+      "type": "post",
+      "ua": "desktop",
+      "url": "{host}/api/mapi/play",
+      "body": "nid={nid}&cid={cid}&sort={sort}",
+      "metaFrom": {
+        "nid": "_b",
+        "cid": "_p",
+        "sc": "_c",
+        "sort": "_d"
+      },
+      "metaDefaults": {
+        "sort": "read"
+      },
+      "headers": {
+        "sc": "{sc}",
+        "Accept": "application/json, text/javascript, */*; q=0.01"
+      },
+      "sign": {
+        "kind": "ptcmsSp",
+        "input": "{sc}",
+        "header": "sp"
+      },
+      "field": "url",
+      "statusField": "status",
+      "statusOK": "200",
+      "retries": 5,
+      "replace": [
+        [
+          "https://mp3pd.",
+          "http://mp3pd."
+        ]
+      ],
+      "referer": "{episodeUrl}",
+      "retryDelayMs": 5000
+    }
+  },
+  {
+    "id": "ting13",
+    "name": "13听书网",
+    "host": "https://www.ting13.cc",
+    "desc": "13听书网（与爱听书同一书库）。目录在 /tingdirs/ 下、要桌面 UA；音频同样走签名接口。（音频接口有突发限流，会隔 5 秒换新签名重试最多 5 次）",
+    "encoding": "utf-8",
+    "ua": "mobile",
+    "searchable": true,
+    "discoverable": false,
+    "search": {
+      "method": "post",
+      "url": "{host}/novelsearch/search/result.html",
+      "body": "searchword={kw}",
+      "ua": "mobile",
+      "list": "dl.list-works-dl",
+      "title": "dt.list-book-dt > a@text",
+      "urlRule": "dt.list-book-dt > a@href",
+      "cover": "^li img@src",
+      "author": "span.book-author a@text",
+      "artist": "span.book-boyin a@text",
+      "intro": "dd.list-book-des@text"
+    },
+    "detail": {
+      "ua": "mobile",
+      "dirUrl": "a.dirurl@href",
+      "dirUA": "desktop",
+      "episodes": "a[href*=\"/play/\"]",
+      "episodeTitle": "@text",
+      "episodeUrl": "@href"
+    },
+    "audio": {
+      "type": "post",
+      "ua": "desktop",
+      "url": "{host}/api/mapi/play",
+      "body": "nid={nid}&cid={cid}&sort={sort}",
+      "metaFrom": {
+        "nid": "_b",
+        "cid": "_p",
+        "sc": "_c",
+        "sort": "_d"
+      },
+      "metaDefaults": {
+        "sort": "read"
+      },
+      "headers": {
+        "sc": "{sc}",
+        "Accept": "application/json, text/javascript, */*; q=0.01"
+      },
+      "sign": {
+        "kind": "ptcmsSp",
+        "input": "{sc}",
+        "header": "sp"
+      },
+      "field": "url",
+      "statusField": "status",
+      "statusOK": "200",
+      "retries": 5,
+      "replace": [
+        [
+          "https://mp3pd.",
+          "http://mp3pd."
+        ]
+      ],
+      "referer": "{episodeUrl}",
+      "retryDelayMs": 5000
     }
   }
 ]
