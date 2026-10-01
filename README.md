@@ -34,9 +34,12 @@ https://raw.githubusercontent.com/fanqie2025/mytingshu-sources/main/subscription
 
 | 源 | 状态 | 形态 |
 | --- | --- | --- |
-| **有听网 / 275听书 / 单田芳评书网 / 爱听书 / 13听书网** | ✅ 已迁移为 **JSON 规则**（在 `subscription/sources.json`，导入即用） | 规则引擎 v2 |
-| 乐听网 / 恋听网 / 29听书网 / 22听书 / 书音FM / 酷我畅听 | ⏳ 待迁移（源码在 `native-sources/`） | 规则引擎 v2（按需继续补能力） |
+| **有听网 / 275听书 / 单田芳评书网 / 爱听书 / 13听书网 / 乐听网 / 酷我畅听 / 书音FM / 29听书网 / 22听书**（10 个） | ✅ 已迁移为 **JSON 规则**（在 `subscription/sources.json`，导入即用；全部实测到 `HTTP 206 + audio/*`） | 规则引擎 v2 |
+| 恋听网 | ⏸ 规则已就绪（`tools/pending/ting55.json`），但音频 CDN `pp.ting55.com` 对**海外出口**返回 404/HTML → 本机验不通，**暂未并入订阅**（国内手机应可用） | 待验 |
 | Audiobookshelf | ✅ App 内置连接器 | 非抓站源 |
+
+> 22听书：搜索要过图片验证码（规则里配 `verification`，App 会弹内置浏览器过一次）+ 6 秒搜索限流（`searchDelayMs`）；
+> 它家**老书音频指向已下线的 `audio.xmcdn.com`（403）**，新书走 `aod.cos.tx.xmcdn.com` 正常 → 搜「三体」点进去可能播不了，属站点数据问题。
 
 ### 规则引擎 v2 已支持（`subscription/sources.json` 用的字段）
 
