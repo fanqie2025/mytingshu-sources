@@ -1,0 +1,33 @@
+name: verify-sources
+
+# 逐站真实链路校验（搜索 → 分类 → 详情 → 章节 → 音频直链 → 真拉 1KB）
+# 境外 runner 上部分站点可能网络不可达，那不算源坏了；以本机复跑为准。
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 20 * * *"   # 每天 04:00（北京时间）跑一次，好知道哪个源失效了
+
+jobs:
+  subscription:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验订阅文件（阻塞）
+        run: python3 tools/verify_subscription.py subscription/sources.json
+
+  live:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: 逐站校验（不阻塞，只看结果）
+        run: |
+          set +e
+          for f in tools/live_tests/*_verify.py; do
+            echo "=================================================="
+            echo "▶ $f"
+            timeout 180 python3 "$f" || echo "⚠️ $f 未通过（可能是境外网络问题，本机复跑确认）"
+          done
+          exit 0
