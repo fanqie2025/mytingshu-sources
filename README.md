@@ -77,8 +77,15 @@ python3 tools/guard_solver.py                  # 守卫解 cookie 逻辑（四�
 python3 tools/debug_sources.py                 # 逐站定位「搜索能出、进去不行」卡在哪一步
 ```
 
-CI（`.github/workflows/verify.yml`）每次 push + 每天定时跑一遍；**境外 runner 上部分站点可能因网络原因失败，
-那不算结论**，以本机复跑为准。
+CI（`.github/workflows/verify.yml`）含两个作业：
+
+| 作业 | 是否阻塞 | 作用 |
+| --- | --- | --- |
+| `ios_schema` | **阻塞** | 按 iOS App 的 Codable schema 校验 `subscription/sources.json`（schema 现场从 app 仓库的 `Sources/RuleSource.swift` 解析）——防「Python 验通、App 整包导不进来」 |
+| `live` | 不阻塞 | 逐站独立链路脚本，只报结果（境外 runner 访问国内站常超时，失败不算结论） |
+
+**逐站「按订阅规则」的全链路校验（`tools/verify_subscription.py`）已从 CI 移除**（境外 runner 上长期红，把真信号埋掉了），
+改为**本机手动跑**（命令见上一节）。本机复跑才是结论。
 
 ## 注意
 
