@@ -251,7 +251,7 @@
     },
     "detail": {
       "ua": "mobile",
-      "dirUrl": "a.dirurl@href",
+      "dirUrl": "a[href*=\"/tingdirs/\"]@href",
       "dirUA": "desktop",
       "episodes": "a[href*=\"/play/\"]",
       "episodeTitle": "@text",
