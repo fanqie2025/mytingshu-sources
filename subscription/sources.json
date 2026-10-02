@@ -103,8 +103,8 @@
       "title": "h3@text",
       "urlRule": "@href",
       "cover": "img@src",
-      "artist": "@regex(演播\\s*([^\\s]+))",
-      "author": "@regex(作者\\s*([^\\s]+))"
+      "artist": "@regex(演播(?:</span>)?\\s*([^\\s<，,。；;|]{1,16}))",
+      "author": "@regex(作者(?:</span>)?\\s*([^\\s<，,。；;|]{1,16}))"
     },
     "detail": {
       "episodes": "a[id*=chapter-pos-]",
